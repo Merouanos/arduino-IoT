@@ -1,7 +1,14 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import morgan from "morgan"
+import morgan from "morgan";
+
+import authRoutes from "./routes/auth.routes";
+import deviceRoutes from "./routes/device.routes";
+import readingRoutes from "./routes/reading.routes";
+import alertRoutes from "./routes/alert.routes";
+
+import { errorMiddleware } from "./middleware/error.middleware";
 
 const app = express();
 
@@ -10,14 +17,17 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
-app.get("/health", (req,res)=>{
-
-
-    return res.json({
-        status:"ok",
+app.get("/health", (_req, res) => {
+    res.json({
+        status: "ok",
     });
-
-
 });
+
+app.use("/api/auth", authRoutes);
+app.use("/api/devices", deviceRoutes);
+app.use("/api", readingRoutes);
+app.use("/api", alertRoutes);
+
+app.use(errorMiddleware);
 
 export default app;
