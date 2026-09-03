@@ -54,18 +54,35 @@ arduino-IoT/
 │   └── main.cpp
 │
 ├── backend/
-│   ├── controllers/
-│   ├── database/
-│   │   ├── migrations/
-│   │   └── db.ts
-│   ├── lib/
-│   ├── middleware/
-│   ├── repositories/
-│   ├── routes/
-│   ├── schemas/
-│   ├── services/
-│   ├── app.ts
-│   └── server.ts
+│   ├── src/
+│   │   ├── controllers/
+│   │   ├── database/
+│   │   │   ├── migrations/
+│   │   │   │   ├── users.sql
+│   │   │   │   ├── devices.sql
+│   │   │   │   ├── sensor_readings.sql
+│   │   │   │   └── alerts.sql
+│   │   │   ├── db.ts
+│   │   │   └── ...
+│   │   ├── lib/
+│   │   ├── middleware/
+│   │   ├── repositories/
+│   │   │   ├── user.repository.ts
+│   │   │   ├── device.repository.ts
+│   │   │   ├── reading.repository.ts
+│   │   │   └── alert.repository.ts
+│   │   ├── routes/
+│   │   ├── schemas/
+│   │   │   ├── auth.schema.ts
+│   │   │   ├── device.schema.ts
+│   │   │   └── reading.schema.ts
+│   │   ├── services/
+│   │   ├── app.ts
+│   │   └── server.ts
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tsconfig.json
 │
 ├── frontend/
 │
@@ -73,8 +90,7 @@ arduino-IoT/
 ├── .env.example
 ├── .gitignore
 ├── docker-compose.yml
-├── Dockerfile.backend
-└── Dockerfile.frontend
+└── ...
 ```
 
 ### Component Responsibilities
@@ -183,43 +199,42 @@ Planned PostgreSQL tables:
 ```text
 users
 -----
-id
-email
-password_hash
-created_at
-updated_at
+id              UUID PK
+email           VARCHAR UNIQUE NOT NULL
+password_hash   VARCHAR NOT NULL
+created_at      TIMESTAMPTZ NOT NULL
+updated_at      TIMESTAMPTZ NULL
 
 devices
 -------
-id
-user_id
-name
-device_key_hash
-created_at
-last_seen_at
+id              UUID PK
+user_id         UUID FK → users.id
+name            VARCHAR NOT NULL
+device_key_hash VARCHAR UNIQUE NOT NULL
+created_at      TIMESTAMPTZ NOT NULL
+last_seen_at    TIMESTAMPTZ NULL
 
 sensor_readings
 ---------------
-id
-device_id
-temperature
-humidity
-free_ram
-temperature_status
-humidity_status
-recorded_at
+id                  UUID PK
+device_id           UUID FK → devices.id
+temperature         DOUBLE PRECISION NOT NULL
+humidity            DOUBLE PRECISION NOT NULL
+free_ram            INTEGER NOT NULL
+temperature_status  SMALLINT NOT NULL
+humidity_status     SMALLINT NOT NULL
+recorded_at         TIMESTAMPTZ NOT NULL
 
 alerts
 ------
-id
-device_id
-type
-severity
-message
-started_at
-resolved_at
-created_at
-```
+id          UUID PK
+device_id   UUID FK → devices.id
+type        VARCHAR NOT NULL
+severity    VARCHAR NOT NULL
+message     VARCHAR NOT NULL
+started_at  TIMESTAMPTZ NOT NULL
+resolved_at TIMESTAMPTZ NULL
+``````
 
 Relationship:
 
@@ -268,16 +283,20 @@ The existing Arduino payload remains the initial device/backend contract:
 
 ```json
 {
-  "t": 25.4,
-  "h": 54,
-  "r": 12000,
-  "status": {
-    "ts": 0,
-    "hs": 0
-  }
+  "temperature": 25.4,
+  "humidity": 54,
+  "free_ram": 12000,
+  "temperature_status": "normal",
+  "humidity_status": "normal"
 }
-```
 
+```text
+temperature         → temperature in °C
+humidity            → relative humidity in %
+free_ram            → free SRAM
+temperature_status  → normal / warning / critical
+humidity_status     → normal / warning / critical
+```
 ```text
 t  → temperature
 h  → humidity
@@ -287,6 +306,33 @@ hs → humidity status
 ```
 
 The existing frontend has some naming inconsistencies around the memory/status fields. During integration, the goal is to preserve the existing UI while normalizing data at the application boundary rather than redesigning the dashboard.
+
+## Completed So Far
+
+The initial V2 foundation has now been implemented/configured:
+
+- Repository structure created and initialized with Git.
+- Backend moved under `backend/src/`.
+- Backend dependencies installed for Express, CORS, Helmet, Morgan, Socket.IO, PostgreSQL, Zod, JWT, bcrypt, dotenv, and TypeScript tooling.
+- TypeScript configuration fixed for the current TypeScript version.
+- Backend Dockerfile created using a multi-stage Node 22 Alpine build.
+- Docker Compose configured with PostgreSQL and backend services.
+- PostgreSQL runs in its own container with a persistent Docker volume.
+- Root `.env` and `.env.example` are used for environment configuration.
+- Express `app.ts`, `server.ts`, and PostgreSQL `db.ts` foundation created.
+- PostgreSQL schema designed around `users`, `devices`, `sensor_readings`, and `alerts`.
+- PostgreSQL UUID generation uses `pgcrypto` / `gen_random_uuid()`.
+- Database timestamps use `TIMESTAMPTZ`.
+- `NULL` intentionally represents "not happened yet" for:
+  - `users.updated_at`
+  - `devices.last_seen_at`
+  - `alerts.resolved_at`
+- Application validation schemas created with Zod:
+  - `auth.schema.ts`
+  - `device.schema.ts`
+  - `reading.schema.ts`
+- Arduino payload updated to use descriptive field names matching the application schema.
+- Repository layer established for users, devices, readings, and alerts.
 
 ## Frontend Decision
 
@@ -372,24 +418,24 @@ Frontend-exposed environment variables must never contain backend secrets.
 ## Development Order
 
 ```text
-1. Backend project setup
-2. Express application + server
-3. PostgreSQL connection
-4. Database schema/migrations
-5. Repositories
-6. Services
-7. Controllers + routes
-8. Arduino reading ingestion
-9. Socket.IO realtime flow
-10. User authentication
-11. Device authentication
-12. Validation + error handling + security
-13. Frontend integration
-14. Arduino simulator
-15. Docker Compose
-16. Tests
-17. Deployment
-18. Final documentation/screenshots
+1. Backend project setup                         ✅
+2. Express application + server                 ✅
+3. PostgreSQL connection                         ✅
+4. Database schema/migrations                    ✅
+5. Repositories                                  ✅
+6. Services                                      ⏳
+7. Controllers + routes                          ⏳
+8. Arduino reading ingestion                     ⏳
+9. Socket.IO realtime flow                       ⏳
+10. User authentication                          ⏳
+11. Device authentication                        ⏳
+12. Validation + error handling + security       ⏳
+13. Frontend integration                         ⏳
+14. Arduino simulator                            ⏳
+15. Docker Compose integration                   ✅
+16. Tests                                        ⏳
+17. Deployment                                   ⏳
+18. Final documentation/screenshots              ⏳
 ```
 
 ## Deployment Plan
@@ -435,6 +481,6 @@ The goal is a clean, understandable system rather than architecture for its own 
 
 The repository structure has been created and initialized with Git.
 
-Initial V2 architecture and technology decisions are documented here.
+The backend foundation, Docker setup, PostgreSQL schema, Zod validation schemas, normalized Arduino payload, and repository layer have now been established.
 
-The next implementation step is backend dependency/setup work followed by the PostgreSQL layer.
+The next implementation step is the **service layer**, starting with authentication and device business logic, followed by controllers/routes and Arduino reading ingestion.
