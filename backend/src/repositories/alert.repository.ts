@@ -78,7 +78,10 @@ export async function findByDeviceId(deviceId: string) {
     return result.rows;
 }
 
-export async function findActiveByDeviceId(deviceId: string) {
+export async function findActiveByDeviceIdAndType(
+    deviceId: string,
+    type: string
+) {
     const result = await db.query(
         `
         SELECT
@@ -91,13 +94,15 @@ export async function findActiveByDeviceId(deviceId: string) {
             resolved_at
         FROM alerts
         WHERE device_id = $1
+          AND type = $2
           AND resolved_at IS NULL
         ORDER BY started_at DESC
+        LIMIT 1
         `,
-        [deviceId]
+        [deviceId, type]
     );
 
-    return result.rows;
+    return result.rows[0] ?? null;
 }
 
 export async function resolve(id: string) {

@@ -1,4 +1,6 @@
 import db from "../database/db";
+import type { PoolClient } from "pg";
+
 
 export interface CreateDeviceData {
     userId: string;
