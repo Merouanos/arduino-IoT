@@ -1,873 +1,795 @@
-**\*\*# Arduino IoT Dashboard V2\*\***
-
-A full-stack IoT monitoring dashboard built around an Arduino sensor device, an Express/Node.js backend, PostgreSQL, Socket.IO, and a React frontend.
-
-This V2 is a refactor of the original Arduino IoT Dashboard. The goal is to keep the existing frontend experience and Arduino logic while rebuilding the backend with a cleaner architecture and adding authentication, persistence, validation, Docker, and deployment.
-
-**\*\*## Architecture\*\***
-
-\\\`\\\`\\\`text
-
-                         ┌──────────────────────┐
-
-                         │       Arduino        │
-
-                         │      main.cpp        │
-
-                         │ DHT11 sensor + logic  │
-
-                         └──────────┬───────────┘
-
-                                    │
-
-                             Sensor readings
-
-                                    │
-
-                                    ▼
-
-                         ┌──────────────────────┐
-
-                         │       Backend        │
-
-                         │ Node.js + Express    │
-
-                         │                      │
-
-                         │ Routes               │
-
-                         │ Middleware           │
-
-                         │ Controllers          │
-
-                         │ Services             │
-
-                         │ Repositories         │
-
-                         │ Validation           │
-
-                         └──────────┬───────────┘
-
-                                    │
-
-                      ┌─────────────┴─────────────┐
-
-                      │                           │
-
-                      ▼                           ▼
-
-              ┌────────────────┐          ┌───────────────┐
-
-              │   PostgreSQL   │          │   Socket.IO   │
-
-              │ users          │          │ realtime data │
-
-              │ devices        │          │ + updates     │
-
-              │ readings       │          └───────┬───────┘
-
-              │ alerts         │                  │
-
-              └────────────────┘                  │
-
-                                                  ▼
-
-                                        ┌──────────────────┐
-
-                                        │     Frontend     │
-
-                                        │ React + Vite     │
-
-                                        │ Existing UI      │
-
-                                        └──────────────────┘
-
-\\\`\\\`\\\`
-
-**\*\*## Repository Structure\*\***
-
-\\\`\\\`\\\`text
-
-arduino-IoT/
-
-├── arduino/
-
-│   └── main.cpp
-
-│
-
-├── backend/
-
-│   ├── src/
-
-│   │   ├── controllers/
-
-│   │   ├── database/
-
-│   │   │   ├── migrations/
-
-│   │   │   │   ├── users.sql
-
-│   │   │   │   ├── devices.sql
-
-│   │   │   │   ├── sensor\\\_readings.sql
-
-│   │   │   │   └── alerts.sql
-
-│   │   │   ├── db.ts
-
-│   │   │   └── ...
-
-│   │   ├── lib/
-
-│   │   ├── middleware/
-
-│   │   ├── repositories/
-
-│   │   │   ├── user.repository.ts
-
-│   │   │   ├── device.repository.ts
-
-│   │   │   ├── reading.repository.ts
-
-│   │   │   └── alert.repository.ts
-
-│   │   ├── routes/
-
-│   │   ├── schemas/
-
-│   │   │   ├── auth.schema.ts
-
-│   │   │   ├── device.schema.ts
-
-│   │   │   └── reading.schema.ts
-
-│   │   ├── services/
-
-│   │   ├── app.ts
-
-│   │   └── server.ts
-
-│   ├── Dockerfile
-
-│   ├── package.json
-
-│   ├── package-lock.json
-
-│   └── tsconfig.json
-
-│
-
-├── frontend/
-
-│
-
-├── .env
-
-├── .env.example
-
-├── .gitignore
-
-├── docker-compose.yml
-
-└── ...
-
-\\\`\\\`\\\`
-
-**\*\*### Component Responsibilities\*\***
-
-**\*\*\\\*\\\*\\\`arduino/\\\`\\\*\\\*\*\***  
-
-Code that runs on the physical Arduino. It remains responsible for reading the DHT11 sensor, applying the existing smoothing/threshold logic, calculating free SRAM, and producing the sensor payload. The Arduino is not containerized. A simulator will be added later so development can continue without physical hardware.
-
-**\*\*\\\*\\\*\\\`backend/routes/\\\`\\\*\\\*\*\***  
-
-Defines API endpoints such as authentication, device management, readings, and alerts. Routes stay thin and delegate to controllers.
-
-**\*\*\\\*\\\*\\\`backend/middleware/\\\`\\\*\\\*\*\***  
-
-Request-level checks and cross-cutting behavior. Planned middleware includes user JWT authentication, device-key authentication, error handling, not-found handling, and appropriate security middleware.
-
-**\*\*\\\*\\\*\\\`backend/controllers/\\\`\\\*\\\*\*\***  
-
-The HTTP layer. Controllers read request data, call services, and return HTTP responses. They should not contain database queries or large amounts of business logic.
-
-**\*\*\\\*\\\*\\\`backend/services/\\\`\\\*\\\*\*\***  
-
-Business logic. Planned services include authentication, devices, readings, and alerts. Services should not depend on HTTP details.
-
-**\*\*\\\*\\\*\\\`backend/repositories/\\\`\\\*\\\*\*\***  
-
-Database access. Repositories hide PostgreSQL details from the business logic.
-
-**\*\*\\\*\\\*\\\`backend/database/\\\`\\\*\\\*\*\***  
-
-PostgreSQL infrastructure. \\\`db.ts\\\` will manage the PostgreSQL connection/pool. Database migrations will live under \\\`migrations/\\\`.
-
-**\*\*\\\*\\\*\\\`backend/schemas/\\\`\\\*\\\*\*\***  
-
-Validation schemas for incoming request/data payloads. Zod is planned for validation.
-
-**\*\*\\\*\\\*\\\`backend/lib/\\\`\\\*\\\*\*\***  
-
-Shared technical utilities/infrastructure such as logging and Socket.IO helpers.
-
-**\*\*\\\*\\\*\\\`backend/app.ts\\\`\\\*\\\*\*\***  
-
-Creates and configures the Express application: global middleware, routes, error handling, and other application setup. It does not start the network listener.
-
-**\*\*\\\*\\\*\\\`backend/server.ts\\\`\\\*\\\*\*\***  
-
-Starts the configured application and listens on the configured port.
-
-**\*\*## Backend Request Flow\*\***
-
-**\*\*### Normal authenticated request\*\***
-
-\\\`\\\`\\\`text
-
+# Arduino IoT Dashboard V2
+
+A full-stack IoT monitoring system built around a physical Arduino sensor, a TypeScript/Express backend, PostgreSQL, Socket.IO, and a React frontend.
+
+> **V2 is a production-oriented refactor of the original Arduino IoT Dashboard.** The goal is to preserve the existing dashboard experience and Arduino sensor logic while replacing the original backend with a clean, testable architecture and adding authentication, persistence, validation, device security, Docker, and deployment readiness.
+
+---
+
+## Why V2?
+
+The original project proved the core idea: an Arduino reads environmental data and a React dashboard displays it in real time.
+
+V2 turns that prototype into a proper full-stack system by introducing:
+
+- A layered backend architecture
+- PostgreSQL persistence for users, devices, readings, and alerts
+- User authentication with JWT
+- Independent device authentication with hashed device keys
+- Request validation with Zod
+- Resource ownership checks
+- Centralized error handling and logging
+- Dockerized backend/database infrastructure
+- A clear path to production deployment
+
+The intention is not to add infrastructure for the sake of infrastructure. The system stays deliberately simple: **one backend, one relational database, one frontend, and physical IoT hardware.**
+
+---
+
+## Architecture
+
+```text
+                             ┌──────────────────────┐
+                             │       Arduino        │
+                             │      main.cpp        │
+                             │                      │
+                             │ DHT11 + sensor logic │
+                             └──────────┬───────────┘
+                                        │
+                              Sensor readings / key
+                                        │
+                                        ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                         Node.js + Express                          │
+│                                                                   │
+│  Routes → Middleware → Controllers → Services → Repositories     │
+│                                  │                                │
+│                                  ├───────────────┐                │
+│                                  ▼               ▼                │
+│                              PostgreSQL       Socket.IO            │
+└───────────────────────────────────┬───────────────┬────────────────┘
+                                    │               │
+                                    ▼               ▼
+                              Persistent data    Live updates
+                                    │               │
+                                    └───────┬───────┘
+                                            ▼
+                                  ┌──────────────────┐
+                                  │     React UI     │
+                                  │   Existing V2    │
+                                  │    dashboard     │
+                                  └──────────────────┘
+```
+
+### Request flow
+
+#### User request
+
+```text
 React
-
-  ↓
-
+  ↓
 Route
-
-  ↓
-
-Auth Middleware
-
-  ↓
-
+  ↓
+JWT auth middleware (only when authentication is required)
+  ↓
+Zod validation (when request data requires validation)
+  ↓
 Controller
-
-  ↓
-
+  ↓
 Service
-
-  ↓
-
+  ↓
 Repository
-
-  ↓
-
+  ↓
 PostgreSQL
+```
 
-\\\`\\\`\\\`
+#### Arduino reading ingestion
 
-**\*\*### Arduino reading ingestion\*\***
-
-\\\`\\\`\\\`text
-
+```text
 Arduino
+  ↓
+POST /api/devices/:id/readings
+  ↓
+Device-auth middleware
+  ↓
+Zod reading validation
+  ↓
+Reading controller
+  ↓
+Reading service
+  ├── save sensor reading
+  └── update device last_seen_at
+       ↓
+   PostgreSQL
+```
 
-  ↓
+---
 
-POST /api/devices/\\\:id/readings
+## Architecture Decisions
 
-  ↓
+### 1. Layered backend instead of a monolithic Express file
 
-Device Auth Middleware
+The backend follows:
 
-  ↓
+```text
+Route
+  → Middleware
+  → Controller
+  → Service
+  → Repository
+  → Database
+```
 
-Validation
+Each layer has one clear responsibility.
 
-  ↓
+| Layer | Responsibility |
+|---|---|
+| **Routes** | Define HTTP endpoints and compose middleware/controllers |
+| **Middleware** | Authentication, device authentication, validation, and error handling |
+| **Controllers** | Translate HTTP requests into service calls and service results into HTTP responses |
+| **Services** | Business/application logic and orchestration |
+| **Repositories** | PostgreSQL access and SQL queries |
+| **Schemas** | Runtime request validation with Zod |
+| **Lib** | Shared technical utilities such as logging |
 
-Reading Controller
+A useful mental model is:
 
-  ↓
+> **Middleware = gatekeeper** · **Controller = translator** · **Service = brain** · **Repository = database interface**
 
-Reading Service
+---
 
-  ├──────────────→ Reading Repository → PostgreSQL
+### 2. `app.ts` and `server.ts` are intentionally separate
 
-  │
+`app.ts` builds and configures the Express application.
 
-  └──────────────→ Socket.IO → React
+`server.ts` starts the network listener.
 
-\\\`\\\`\\\`
+This keeps application configuration independent from server startup and makes the Express app easier to test later.
 
-**\*\*## Planned API\*\***
+---
 
-\\\`\\\`\\\`text
+### 3. User authentication and device authentication are separate
 
-POST /api/auth/register
+A human user and an Arduino are different security principals.
 
-POST /api/auth/login
+**Users:**
 
-GET  /api/auth/me
+```text
+email + password
+      ↓
+JWT
+      ↓
+Authorization: Bearer <token>
+```
 
-GET    /api/devices
+**Devices:**
 
-POST   /api/devices
+```text
+random device key
+      ↓
+secure hash stored in PostgreSQL
+      ↓
+X-Device-Key: <raw-key>
+```
 
-PATCH  /api/devices/\\\:id
+A user JWT is never used as an Arduino credential.
 
-DELETE /api/devices/\\\:id
+---
 
-POST /api/devices/\\\:id/regenerate-key
+### 4. Device keys are hashed like passwords
 
-POST /api/devices/\\\:id/readings
+A device key acts as the device's credential. The raw key is generated by the backend and returned when a device is created or its key is regenerated.
 
-GET /api/devices/\\\:id/readings
+Only the hash is stored in PostgreSQL:
 
-GET /api/devices/\\\:id/readings/latest
+```text
+Raw device key
+      ↓
+   bcrypt hash
+      ↓
+device_key_hash
+```
 
-GET /api/devices/\\\:id/alerts
+Incoming device requests are verified with `bcrypt.compare()`.
 
-GET /api/devices/\\\:id/alerts/active
+The raw device key is **never returned in repository data and should never be logged**.
 
-\\\`\\\`\\\`
+---
 
-REST is intended for authentication, device management, history, alerts, and normal request/response operations. Socket.IO is intended for live sensor updates.
+### 5. Authentication vs. authorization
 
-**\*\*## Data Model\*\***
+Authentication middleware answers:
 
-PostgreSQL tables:
+> **Who are you?**
 
-\\\`\\\`\\\`text
+For users, that produces `req.user.id`.
 
+For devices, that produces `req.device.id`.
+
+The service layer handles resource authorization/business rules such as:
+
+> **Are you allowed to access this device?**
+
+For example, reading and alert queries use ownership-aware repository methods such as `findByIdAndUser(...)`.
+
+This keeps middleware generic and keeps resource-specific authorization close to the business logic.
+
+---
+
+### 6. Zod validates at the HTTP boundary
+
+Zod schemas define what incoming data is allowed to look like.
+
+The reusable validation middleware applies the selected schema to `req.body`:
+
+```text
+Request body
+   ↓
+validate(schema)
+   ↓
+Zod
+ ┌─┴─────────┐
+invalid     valid
+  ↓            ↓
+400          next()
+```
+
+The same middleware is reusable for authentication, devices, readings, alerts, and future schemas.
+
+---
+
+### 7. Database field naming stays aligned with PostgreSQL for now
+
+The database uses `snake_case` fields such as:
+
+```text
+password_hash
+created_at
+updated_at
+last_seen_at
+```
+
+The current service/repository implementation uses these names directly. A future cleanup can introduce explicit DB-to-TypeScript mapping if needed, but it is intentionally not adding abstraction prematurely.
+
+---
+
+### 8. `TIMESTAMPTZ` is used for application timestamps
+
+PostgreSQL timestamps use `TIMESTAMPTZ` so stored event times retain timezone-aware semantics.
+
+The project also intentionally uses `NULL` to represent events that have **never happened**:
+
+- `users.updated_at = NULL` → the user has never been updated
+- `devices.last_seen_at = NULL` → the device has never successfully communicated
+- `alerts.resolved_at = NULL` → the alert is still unresolved
+
+This gives the fields clear domain meaning instead of inventing placeholder timestamps.
+
+---
+
+### 9. Alert duplication is controlled by device + alert type
+
+The system does **not** treat a device as having one global active alert.
+
+Instead, an active alert is checked by:
+
+```text
+device_id + type + unresolved
+```
+
+This allows a device to have, for example:
+
+```text
+temperature → CRITICAL → active
+humidity    → WARNING  → active
+```
+
+while preventing the same alert type from being recreated on every incoming reading.
+
+---
+
+### 10. No unnecessary distributed infrastructure
+
+The project intentionally avoids microservices, Kafka, Kubernetes, Redis, and similar infrastructure unless a real requirement appears.
+
+The goal is **clean architecture, not architecture for its own sake**.
+
+---
+
+## Repository Structure
+
+```text
+arduino-IoT/
+│
+├── arduino/
+│   └── main.cpp
+│
+├── backend/
+│   ├── src/
+│   │   ├── controllers/
+│   │   │   ├── auth.controller.ts
+│   │   │   ├── device.controller.ts
+│   │   │   ├── reading.controller.ts
+│   │   │   └── alert.controller.ts
+│   │   │
+│   │   ├── database/
+│   │   │   ├── migrations/
+│   │   │   │   ├── users.sql
+│   │   │   │   ├── devices.sql
+│   │   │   │   ├── sensor_readings.sql
+│   │   │   │   └── alerts.sql
+│   │   │   └── db.ts
+│   │   │
+│   │   ├── lib/
+│   │   │   └── logger.ts
+│   │   │
+│   │   ├── middleware/
+│   │   │   ├── auth.middleware.ts
+│   │   │   ├── deviceAuth.middleware.ts
+│   │   │   ├── validate.middleware.ts
+│   │   │   └── error.middleware.ts
+│   │   │
+│   │   ├── repositories/
+│   │   │   ├── user.repository.ts
+│   │   │   ├── device.repository.ts
+│   │   │   ├── reading.repository.ts
+│   │   │   └── alert.repository.ts
+│   │   │
+│   │   ├── routes/
+│   │   │   ├── auth.routes.ts
+│   │   │   ├── device.routes.ts
+│   │   │   ├── reading.routes.ts
+│   │   │   └── alert.routes.ts
+│   │   │
+│   │   ├── schemas/
+│   │   │   ├── auth.schema.ts
+│   │   │   ├── device.schema.ts
+│   │   │   ├── reading.schema.ts
+│   │   │   └── alert.schema.ts
+│   │   │
+│   │   ├── services/
+│   │   │   ├── auth.service.ts
+│   │   │   ├── device.service.ts
+│   │   │   ├── reading.service.ts
+│   │   │   └── alert.service.ts
+│   │   │
+│   │   ├── types/
+│   │   │   └── express.d.ts
+│   │   │
+│   │   ├── app.ts
+│   │   └── server.ts
+│   │
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tsconfig.json
+│
+├── frontend/
+│
+├── .env
+├── .env.example
+├── .gitignore
+├── docker-compose.yml
+└── ...
+```
+
+---
+
+## Tech Stack
+
+### Backend
+
+- Node.js 22
+- TypeScript
+- Express.js
+- PostgreSQL
+- `pg`
+- Socket.IO
+- Zod
+- JWT (`jsonwebtoken`)
+- bcrypt
+- dotenv
+- Helmet
+- CORS
+- Morgan
+- Docker
+
+### Frontend
+
+- React
+- Vite
+- Existing dashboard UI
+- Socket.IO client
+- REST API integration
+
+### Hardware
+
+- Arduino
+- DHT11 temperature/humidity sensor
+- Arduino C++ firmware
+
+---
+
+## Data Model
+
+```text
 users
+-----
+id              UUID PK
+email           VARCHAR UNIQUE NOT NULL
+password_hash   VARCHAR NOT NULL
+created_at      TIMESTAMPTZ NOT NULL
+updated_at      TIMESTAMPTZ NULL
 
-\\-----
-
-id              UUID PK
-
-email           VARCHAR UNIQUE NOT NULL
-
-password\\\_hash   VARCHAR NOT NULL
-
-created\\\_at      TIMESTAMPTZ NOT NULL
-
-updated\\\_at      TIMESTAMPTZ NULL
 
 devices
+-------
+id                UUID PK
+user_id           UUID FK → users.id
+name              VARCHAR NOT NULL
+device_key_hash   VARCHAR UNIQUE NOT NULL
+created_at        TIMESTAMPTZ NOT NULL
+last_seen_at      TIMESTAMPTZ NULL
 
-\\-------
 
-id              UUID PK
+sensor_readings
+---------------
+id                  UUID PK
+device_id           UUID FK → devices.id
+temperature         DOUBLE PRECISION NOT NULL
+humidity            DOUBLE PRECISION NOT NULL
+free_ram            INTEGER NOT NULL
+temperature_status  SMALLINT NOT NULL
+humidity_status     SMALLINT NOT NULL
+recorded_at         TIMESTAMPTZ NOT NULL
 
-user\\\_id         UUID FK → users.id
-
-name            VARCHAR NOT NULL
-
-device\\\_key\\\_hash VARCHAR UNIQUE NOT NULL
-
-created\\\_at      TIMESTAMPTZ NOT NULL
-
-last\\\_seen\\\_at    TIMESTAMPTZ NULL
-
-sensor\\\_readings
-
-\\---------------
-
-id                  UUID PK
-
-device\\\_id           UUID FK → devices.id
-
-temperature         DOUBLE PRECISION NOT NULL
-
-humidity            DOUBLE PRECISION NOT NULL
-
-free\\\_ram            INTEGER NOT NULL
-
-temperature\\\_status  SMALLINT NOT NULL
-
-humidity\\\_status     SMALLINT NOT NULL
-
-recorded\\\_at         TIMESTAMPTZ NOT NULL
 
 alerts
-
-\\------
-
-id          UUID PK
-
-device\\\_id   UUID FK → devices.id
-
-type        VARCHAR NOT NULL
-
-severity    VARCHAR NOT NULL
-
-message     VARCHAR NOT NULL
-
-started\\\_at  TIMESTAMPTZ NOT NULL
-
-resolved\\\_at TIMESTAMPTZ NULL
-
-\\\`\\\`\\\`\\\`\\\`\\\`
+------
+id          UUID PK
+device_id   UUID FK → devices.id
+type        VARCHAR NOT NULL
+severity    VARCHAR NOT NULL
+message     VARCHAR NOT NULL
+started_at  TIMESTAMPTZ NOT NULL
+resolved_at TIMESTAMPTZ NULL
+```
 
 Relationship:
 
-\\\`\\\`\\\`text
-
+```text
 User
+└── Devices
+    ├── Sensor Readings
+    └── Alerts
+```
 
- └── Devices
+---
 
-      ├── Sensor Readings
+## Authentication
 
-      └── Alerts
+### User authentication
 
-\\\`\\\`\\\`
+```text
+email + password
+      ↓
+ bcrypt verification
+      ↓
+ JWT generated
+      ↓
+Authorization: Bearer <JWT>
+      ↓
+auth middleware
+      ↓
+req.user.id
+```
 
-**\*\*## Authentication\*\***
+Passwords are stored as secure bcrypt hashes, never as plaintext.
 
-There are two separate authentication mechanisms.
+### Device authentication
 
-**\*\*### User authentication\*\***
+```text
+Device creation
+      ↓
+random device key generated
+      ↓
+bcrypt hash stored in PostgreSQL
+      ↓
+raw key returned once
+      ↓
+Arduino uses X-Device-Key
+      ↓
+device auth middleware
+      ↓
+bcrypt.compare()
+      ↓
+req.device.id
+```
 
-\\\`\\\`\\\`text
+Regenerating a device key replaces the stored hash, invalidating the previous device credential.
 
-User
+---
 
- ↓
+## API Surface
 
-Login
+### Authentication
 
- ↓
+```text
+POST   /api/auth/register
+POST   /api/auth/login
+PATCH  /api/auth/me
+```
 
-Backend verifies password
+### Devices
 
- ↓
+```text
+GET    /api/devices
+POST   /api/devices
+GET    /api/devices/:id
+PATCH  /api/devices/:id
+DELETE /api/devices/:id
+POST   /api/devices/:id/regenerate-key
+```
 
-JWT issued
+### Readings
 
- ↓
+```text
+POST   /api/devices/:id/readings
+GET    /api/devices/:id/readings
+GET    /api/devices/:id/readings/latest
+```
 
-React sends Authorization: Bearer \\\<JWT>
+### Alerts
 
-\\\`\\\`\\\`
+```text
+POST   /api/devices/:id/alerts
+GET    /api/devices/:id/alerts
+GET    /api/alerts/:id
+PATCH  /api/alerts/:id/resolve
+```
 
-Passwords will be securely hashed.
+REST is used for normal request/response operations such as authentication, device management, history, and alerts. Socket.IO is reserved for the realtime sensor stream planned for the frontend integration.
 
-**\*\*### Device authentication\*\***
+---
 
-The Arduino will authenticate independently from a user:
+## Arduino
 
-\\\`\\\`\\\`http
+The physical device runs the existing Arduino C++ logic in:
 
-X-Device-Key: \\\<device-key>
+```text
+arduino/main.cpp
+```
 
-\\\`\\\`\\\`
+The current firmware:
 
-The backend will verify the device key and associate the reading with the correct device.
+- Reads a DHT11 temperature/humidity sensor
+- Smooths sensor values using a small rolling buffer
+- Applies persistent warning/critical status logic
+- Calculates free SRAM
+- Emits a reading approximately every 2 seconds over serial
 
-The raw device key should not be stored directly; the planned design stores a secure hash.
+### Sensor connection
 
-**\*\*## Arduino Payload\*\***
+```text
+DHT11 data → Arduino pin 13
+```
 
-The existing Arduino payload remains the initial device/backend contract:
+### 7-segment display
 
-\\\`\\\`\\\`json
+The 7-segment display was used **only as a development/debugging component** while testing the Arduino board. It is **not required by the IoT dashboard system**.
 
+---
+
+## Arduino → Backend Payload
+
+The normalized application payload is:
+
+```json
 {
-
-  "temperature": 25.4,
-
-  "humidity": 54,
-
-  "free\\\_ram": 12000,
-
-  "temperature\\\_status": "normal",
-
-  "humidity\\\_status": "normal"
-
+  "temperature": 25.4,
+  "humidity": 54,
+  "free_ram": 1200,
+  "temperature_status": "normal",
+  "humidity_status": "normal"
 }
+```
 
-\\\`\\\`\\\`text
+The backend validates this payload with Zod before the reading reaches the controller/service layer.
 
-temperature         → temperature in °C
+---
 
-humidity            → relative humidity in %
+## Local Development
 
-free\\\_ram            → free SRAM
+### Prerequisites
 
-temperature\\\_status  → normal / warning / critical
+- Node.js
+- Docker Desktop
+- Arduino IDE
+- Arduino board + DHT11 for physical-device testing
 
-humidity\\\_status     → normal / warning / critical
+### Environment configuration
 
-\\\`\\\`\\\`
+Create your local environment file from the example:
 
-\\\`\\\`\\\`text
-
-t  → temperature
-
-h  → humidity
-
-r  → free SRAM
-
-ts → temperature status
-
-hs → humidity status
-
-\\\`\\\`\\\`
-
-The existing frontend has some naming inconsistencies around the memory/status fields. During integration, the goal is to preserve the existing UI while normalizing data at the application boundary rather than redesigning the dashboard.
-
-**\*\*## Hardware\*\***
-
-The current device is an Arduino-based sensor setup using:
-
-\- **\*\*DHT11\*\*** temperature/humidity sensor
-
-\- **\*\*7-segment display\*\***
-
-\- Arduino C++ firmware in \`arduino/main.cpp\`
-
-Current pin assignments in the firmware:
-
-\`\`\`text
-
-DHT11 data pin → 13
-
-7-segment display:
-
-segment 1 → 2
-
-segment 2 → 3
-
-segment 3 → 4
-
-segment 4 → 5
-
-segment 5 → 6
-
-segment 6 → 7
-
-segment 7 → 8
-
-\`\`\`
-
-The Arduino reads temperature and humidity, applies the existing smoothing and persistent-status logic, calculates free SRAM, and emits a JSON reading every \~2 seconds over the serial connection.
-
-The exact physical wiring diagram and Arduino board model should be documented here once finalized.
-
-**\*\*## Local Setup\*\***
-
-**### Prerequisites**
-
-\- Node.js
-
-\- Docker Desktop
-
-\- Arduino IDE
-
-\- A compatible Arduino board with the DHT11 sensor and 7-segment display
-
-**### Environment**
-
-Copy the example environment file and configure the local values:
-
-\`\`\`text
-
+```text
 .env.example
-
-    ↓
-
+    ↓
 .env
+```
 
-\`\`\`
+The root `.env` is used by Docker Compose and the backend.
 
-The root \`.env\` is used by Docker Compose and the backend.
+Never commit `.env` or expose backend secrets to the frontend.
 
-**### Run PostgreSQL + Backend**
+### Start the backend stack
 
 From the repository root:
 
-\`\`\`bash
-
+```bash
 docker compose up --build
+```
 
-\`\`\`
+The current development stack runs:
 
-Backend health check:
-
-\`\`\`text
-
-http\://localhost:3000/health
-
-\`\`\`
-
-**### Arduino**
-
-Upload \`arduino/main.cpp\` to the board using the Arduino IDE and keep the serial connection configured for the firmware's baud rate.
-
-The Arduino is not containerized. A simulator will be added later for development without physical hardware.
-
-**### Frontend**
-
-The frontend setup will be documented here once the V2 frontend integration is complete, including its local development command and configuration.
-
-**\*\*## Completed So Far\*\***
-
-The initial V2 foundation has now been implemented/configured:
-
-\\- Repository structure created and initialized with Git.
-
-\\- Backend moved under \\\`backend/src/\\\`.
-
-\\- Backend dependencies installed for Express, CORS, Helmet, Morgan, Socket.IO, PostgreSQL, Zod, JWT, bcrypt, dotenv, and TypeScript tooling.
-
-\\- TypeScript configuration fixed for the current TypeScript version.
-
-\\- Backend Dockerfile created using a multi-stage Node 22 Alpine build.
-
-\\- Docker Compose configured with PostgreSQL and backend services.
-
-\\- PostgreSQL runs in its own container with a persistent Docker volume.
-
-\\- Root \\\`.env\\\` and \\\`.env.example\\\` are used for environment configuration.
-
-\\- Express \\\`app.ts\\\`, \\\`server.ts\\\`, and PostgreSQL \\\`db.ts\\\` foundation created.
-
-\\- PostgreSQL schema designed around \\\`users\\\`, \\\`devices\\\`, \\\`sensor\\\_readings\\\`, and \\\`alerts\\\`.
-
-\\- PostgreSQL UUID generation uses \\\`pgcrypto\\\` / \\\`gen\\\_random\\\_uuid()\\\`.
-
-\\- Database timestamps use \\\`TIMESTAMPTZ\\\`.
-
-\\- \\\`NULL\\\` intentionally represents "not happened yet" for:
-
-  - \\\`users.updated\\\_at\\\`
-
-  - \\\`devices.last\\\_seen\\\_at\\\`
-
-  - \\\`alerts.resolved\\\_at\\\`
-
-\\- Application validation schemas created with Zod:
-
-  - \\\`auth.schema.ts\\\`
-
-  - \\\`device.schema.ts\\\`
-
-  - \\\`reading.schema.ts\\\`
-
-\\- Arduino payload updated to use descriptive field names matching the application schema.
-
-\\- Repository layer established for users, devices, readings, and alerts.
-
-\- User repository supports lookup, creation, update, and persistence operations.
-
-\- Device repository supports lookup/ownership checks, creation, update, credential-hash rotation, deletion, key lookup, and last-seen updates.
-
-\- Reading repository supports creating readings and retrieving latest/history readings by device.
-
-\- Alert repository supports creating, retrieving, listing active alerts, and resolving alerts.
-
-**\*\*## Frontend Decision\*\***
-
-The existing frontend UI will be kept visually consistent.
-
-The V2 frontend work is mainly integration:
-
-\\- Connect to the new backend.
-
-\\- Add authentication handling.
-
-\\- Retrieve history through REST.
-
-\\- Consume realtime updates through Socket.IO.
-
-\\- Adapt data where necessary without redesigning the dashboard.
-
-**\*\*## Docker\*\***
-
-Docker will be used for the application infrastructure.
-
-Planned containers:
-
-\\\`\\\`\\\`text
-
-Frontend
-
+```text
+PostgreSQL
 Backend
+```
 
+PostgreSQL migrations are initialized from the migration SQL files when the database volume is created.
+
+### Health check
+
+```text
+GET http://localhost:3000/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Arduino
+
+Upload `arduino/main.cpp` with the Arduino IDE and connect the board according to the hardware section above.
+
+The Arduino remains outside Docker. A simulator is planned for development and testing without physical hardware.
+
+### Frontend
+
+The existing dashboard will remain visually consistent. V2 frontend work focuses on:
+
+- Authentication handling
+- REST API integration
+- Reading history
+- Socket.IO realtime updates
+- Data adaptation without redesigning the dashboard
+
+The frontend's final V2 startup/deployment instructions will be added after integration is complete.
+
+---
+
+## Testing / Verification
+
+The backend has already been exercised end-to-end against the Dockerized environment.
+
+Verified areas include:
+
+- Docker container startup
+- PostgreSQL connectivity and migrations
+- Health endpoint
+- User registration and duplicate registration handling
+- Login and invalid credentials
+- JWT-protected routes
+- Zod validation failures
+- Device creation and device key generation
+- Device ownership protection
+- Device key authentication
+- Invalid/missing device credentials
+- Device key regeneration
+- Sensor reading ingestion
+- `last_seen_at` updates
+- Latest/history reading retrieval
+- Alert creation
+- Duplicate active-alert prevention by type
+- Multiple alert types per device
+- Alert retrieval
+- Alert resolution and repeated-resolution handling
+- Alert ownership protection
+- Global error handling
+
+The repository is therefore beyond the "server starts" stage: the main backend request flows have been manually verified through the actual API and database.
+
+---
+
+## Current Implementation Status
+
+```text
+Backend project setup                       ✅
+Express application + server               ✅
+PostgreSQL connection                       ✅
+Database schema + migrations                ✅
+Repositories                               ✅
+Services                                   ✅
+Middleware                                 ✅
+Controllers                                ✅
+Routes                                     ✅
+JWT user authentication                    ✅
+Device authentication                      ✅
+Zod validation                             ✅
+Docker + PostgreSQL development stack      ✅
+Backend API verification                   ✅
+
+Arduino simulator                           ⏳
+Socket.IO realtime frontend integration    ⏳
+Frontend V2 integration                     ⏳
+Production deployment                       ⏳
+Automated test suite                        ⏳
+Final hardware wiring documentation        ⏳
+```
+
+---
+
+## Planned Next Steps
+
+### 1. Connect the Arduino to the new backend
+
+Move from API verification to the real serial/device flow and later add the planned simulator.
+
+### 2. Complete realtime integration
+
+Use Socket.IO to stream sensor updates to the existing React dashboard.
+
+### 3. Integrate the frontend with authentication
+
+Add login state, protected UI flows, device management, history, and alert actions.
+
+### 4. Production deployment
+
+Planned architecture:
+
+```text
+React frontend → Vercel
+        │
+        ▼
+Express backend → Render
+        │
+        ▼
 PostgreSQL
+```
 
-\\\`\\\`\\\`
+The physical Arduino remains an external IoT client.
 
-The physical Arduino remains outside Docker.
+---
 
-A future simulator will generate Arduino-compatible readings for development/testing.
+## Engineering Principles
 
-**\*\*## Environment Variables\*\***
+This project is intentionally built around a few principles:
 
-A single environment configuration is kept at the repository root:
+- Keep responsibilities explicit.
+- Keep controllers thin.
+- Keep business rules in services.
+- Keep SQL inside repositories.
+- Validate untrusted input at the boundary.
+- Authenticate users and physical devices independently.
+- Enforce resource ownership in the business layer.
+- Never expose or log passwords, JWTs, device keys, or password hashes.
+- Prefer simple architecture over unnecessary infrastructure.
+- Preserve working product/UI behavior while improving the backend underneath it.
 
-\\\`\\\`\\\`text
+---
 
-.env
+## Original Project
 
-.env.example
+V2 is a continuation of the original Arduino IoT Dashboard project. The original UI and Arduino behavior are intentionally preserved as the foundation while the backend is being rebuilt into a more production-ready system.
 
-\\\`\\\`\\\`
+---
 
-\\\`.env\\\` contains local/secret values and must not be committed.
+## Status
 
-\\\`.env.example\\\` documents the variables required to run the project without exposing secrets.
+**Backend architecture: complete and manually verified.**
 
-Planned variables include:
-
-\\\`\\\`\\\`env
-
-PORT=
-
-DATABASE\\\_URL=
-
-JWT\\\_SECRET=
-
-CORS\\\_ORIGIN=
-
-\\\`\\\`\\\`
-
-The exact variable names can evolve during implementation.
-
-Frontend-exposed environment variables must never contain backend secrets.
-
-**\*\*## Planned Stack\*\***
-
-**\*\*### Backend\*\***
-
-\\- Node.js
-
-\\- TypeScript
-
-\\- Express.js
-
-\\- PostgreSQL
-
-\\- Socket.IO
-
-\\- Zod
-
-\\- JWT authentication
-
-\\- Secure password hashing
-
-\\- Docker
-
-**\*\*### Frontend\*\***
-
-\\- Existing React application
-
-\\- Existing dashboard UI
-
-\\- Socket.IO client
-
-\\- REST API integration
-
-**\*\*### Arduino\*\***
-
-\\- Existing C++ sensor code
-
-\\- DHT11
-
-\\- Existing smoothing/status logic
-
-**\*\*## Development Order\*\***
-
-\\\`\\\`\\\`text
-
-1\\. Backend project setup                         ✅
-
-2\\. Express application + server                 ✅
-
-3\\. PostgreSQL connection                         ✅
-
-4\\. Database schema/migrations                    ✅
-
-5\\. Repositories                                  ✅
-
-6\\. Services                                      ⏳
-
-7\\. Controllers + routes                          ⏳
-
-8\\. Arduino reading ingestion                     ⏳
-
-9\\. Socket.IO realtime flow                       ⏳
-
-10\\. User authentication                          ⏳
-
-11\\. Device authentication                        ⏳
-
-12\\. Validation + error handling + security       ⏳
-
-13\\. Frontend integration                         ⏳
-
-14\\. Arduino simulator                            ⏳
-
-15\\. Docker Compose integration                   ✅
-
-16\\. Tests                                        ⏳
-
-17\\. Deployment                                   ⏳
-
-18\\. Final documentation/screenshots              ⏳
-
-\\\`\\\`\\\`
-
-**\*\*## Deployment Plan\*\***
-
-Planned production setup:
-
-\\\`\\\`\\\`text
-
-React frontend
-
-    ↓
-
-Vercel
-
-Express backend
-
-    ↓
-
-Render
-
-PostgreSQL
-
-    ↓
-
-Render PostgreSQL
-
-\\\`\\\`\\\`
-
-Socket.IO will connect the deployed frontend to the deployed backend for realtime updates.
-
-**\*\*## Engineering Goals\*\***
-
-The V2 is intentionally focused on practical full-stack/backend engineering:
-
-\\- Clear separation of concerns.
-
-\\- Persistent relational data.
-
-\\- User authentication and authorization.
-
-\\- Device-specific authentication.
-
-\\- Input validation.
-
-\\- Realtime communication.
-
-\\- Dockerized application infrastructure.
-
-\\- Production deployment.
-
-\\- Testable architecture.
-
-\\- Physical IoT hardware integrated with a modern web stack.
-
-The project should avoid unnecessary infrastructure complexity such as microservices, Kafka, Kubernetes, or Redis unless a real requirement appears later.
-
-The goal is a clean, understandable system rather than architecture for its own sake.
-
-**\*\*## Current Status\*\***
-
-The repository structure has been created and initialized with Git.
-
-The backend foundation, Docker setup, PostgreSQL schema, Zod validation schemas, normalized Arduino payload, and repository layer have now been established.
-
-The next implementation step is the **\*\*\\\*\\\*service layer\\\*\\\*\*\***, starting with authentication and device business logic, followed by controllers/routes and Arduino reading ingestion.
+The next milestone is integrating the real Arduino/device stream and connecting the React dashboard to the new backend and realtime layer.
