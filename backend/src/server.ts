@@ -4,8 +4,8 @@ import { Server } from "socket.io";
 
 import app from "./app";
 import { initializeSocket } from "./lib/socket";
-import { configureSocketAuth } from "./socket/auth";
-import { configureSocketHandlers } from "./socket/handler";
+import { configureSocketAuth } from "./socket/socket.auth";
+import { configureSocketHandlers } from "./socket/socket.handler";
 
 dotenv.config();
 
