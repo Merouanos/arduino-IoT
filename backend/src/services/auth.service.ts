@@ -2,10 +2,14 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import * as userRepository from "../repositories/user.repository";
 import { logger } from "../lib/logger";
+import { AppError } from "../lib/app.error";
 
 function generateToken(userId: string) {
     if (!process.env.JWT_SECRET) {
-        throw new Error("JWT_SECRET is not configured");
+        throw new AppError(
+            "Authentication service unavailable",
+            500
+        );
     }
 
     return jwt.sign(
@@ -23,7 +27,11 @@ export async function register(
 
     if (existingUser) {
         logger.warn("Registration attempt with existing email");
-        throw new Error("User already exists");
+
+        throw new AppError(
+            "User already exists",
+            409
+        );
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -52,7 +60,11 @@ export async function login(
 
     if (!user) {
         logger.warn("Login attempt with invalid credentials");
-        throw new Error("Invalid credentials");
+
+        throw new AppError(
+            "Invalid credentials",
+            401
+        );
     }
 
     const isMatch = await bcrypt.compare(
@@ -62,7 +74,11 @@ export async function login(
 
     if (!isMatch) {
         logger.warn("Login attempt with invalid credentials");
-        throw new Error("Invalid credentials");
+
+        throw new AppError(
+            "Invalid credentials",
+            401
+        );
     }
 
     const token = generateToken(user.id);
@@ -89,7 +105,11 @@ export async function updateUser(
 
     if (!existingUser) {
         logger.warn("Attempt to update nonexistent user", id);
-        throw new Error("User not found");
+
+        throw new AppError(
+            "User not found",
+            404
+        );
     }
 
     const emailChanged =
@@ -101,7 +121,11 @@ export async function updateUser(
 
     if (!emailChanged && !passwordChanged) {
         logger.warn("User update requested with no changes", id);
-        throw new Error("Nothing to update");
+
+        throw new AppError(
+            "Nothing to update",
+            400
+        );
     }
 
     if (emailChanged) {
@@ -109,8 +133,14 @@ export async function updateUser(
             await userRepository.findByEmail(email);
 
         if (emailExists && emailExists.id !== id) {
-            logger.warn("Attempt to change email to one already in use");
-            throw new Error("Email already in use");
+            logger.warn(
+                "Attempt to change email to one already in use"
+            );
+
+            throw new AppError(
+                "Email already in use",
+                409
+            );
         }
     }
 
@@ -118,27 +148,45 @@ export async function updateUser(
 
     if (passwordChanged) {
         if (!currentPassword) {
-            throw new Error("Current password is required");
-        }
-
-        const isCurrentPasswordValid = await bcrypt.compare(
-            currentPassword,
-            existingUser.password_hash
-        );
-
-        if (!isCurrentPasswordValid) {
-            logger.warn("Incorrect current password during password change");
-            throw new Error("Current password is incorrect");
-        }
-
-        if (newPassword === currentPassword) {
-            logger.warn("User attempted to reuse current password", id);
-            throw new Error(
-                "New password must be different from current password"
+            throw new AppError(
+                "Current password is required",
+                400
             );
         }
 
-        passwordHash = await bcrypt.hash(newPassword, 12);
+        const isCurrentPasswordValid =
+            await bcrypt.compare(
+                currentPassword,
+                existingUser.password_hash
+            );
+
+        if (!isCurrentPasswordValid) {
+            logger.warn(
+                "Incorrect current password during password change"
+            );
+
+            throw new AppError(
+                "Current password is incorrect",
+                401
+            );
+        }
+
+        if (newPassword === currentPassword) {
+            logger.warn(
+                "User attempted to reuse current password",
+                id
+            );
+
+            throw new AppError(
+                "New password must be different from current password",
+                400
+            );
+        }
+
+        passwordHash = await bcrypt.hash(
+            newPassword,
+            12
+        );
     }
 
     const updateData: userRepository.UpdateUserData = {
@@ -152,7 +200,8 @@ export async function updateUser(
     );
 
     if (!user) {
-        logger.error("Failed to update user", id);
+        // Unexpected database/application failure.
+        // Let error middleware handle and log it.
         throw new Error("Failed to update user");
     }
 

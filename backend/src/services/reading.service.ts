@@ -2,6 +2,7 @@ import * as readingRepository from "../repositories/reading.repository";
 import * as deviceRepository from "../repositories/device.repository";
 import type { ReadingInput } from "../schemas/reading.schema";
 import { logger } from "../lib/logger";
+import { AppError } from "../lib/app.error";
 
 const statusToNumber = {
     normal: 0,
@@ -28,15 +29,13 @@ export async function createReading(
         humidityStatus,
     });
 
-    const lastSeen = await deviceRepository.updateLastSeen(deviceId);
+    const lastSeen =
+        await deviceRepository.updateLastSeen(deviceId);
 
     if (!lastSeen) {
-        logger.error(
-            "Failed to update device last seen",
-            deviceId
+        throw new Error(
+            "Failed to update device last seen"
         );
-
-        throw new Error("Failed to update device last seen");
     }
 
     logger.info(
@@ -54,33 +53,52 @@ export async function getLatestReading(
     deviceId: string,
     userId: string
 ) {
-    const device = await deviceRepository.findByIdAndUser(
-        deviceId,
-        userId
-    );
+    const device =
+        await deviceRepository.findByIdAndUser(
+            deviceId,
+            userId
+        );
 
     if (!device) {
         logger.warn(
-        "User attempted to access an unauthorized or nonexistent device",
-        { userId, deviceId }
+            "User attempted to access an unauthorized or nonexistent device",
+            { userId, deviceId }
         );
-        throw new Error("Device not found");
+
+        throw new AppError(
+            "Device not found",
+            404
+        );
     }
 
-    return readingRepository.findLatestByDeviceId(deviceId);
+    return readingRepository.findLatestByDeviceId(
+        deviceId
+    );
 }
 
-export async function getReadingHistory(deviceId: string, userId: string) {
-    const device = await deviceRepository.findByIdAndUser(deviceId, userId);
+export async function getReadingHistory(
+    deviceId: string,
+    userId: string
+) {
+    const device =
+        await deviceRepository.findByIdAndUser(
+            deviceId,
+            userId
+        );
 
     if (!device) {
         logger.warn(
-        "User attempted to access an unauthorized or nonexistent device",
-        { userId, deviceId }
+            "User attempted to access an unauthorized or nonexistent device",
+            { userId, deviceId }
         );
 
-        throw new Error("Device not found");
+        throw new AppError(
+            "Device not found",
+            404
+        );
     }
 
-    return readingRepository.findByDeviceId(deviceId);
+    return readingRepository.findByDeviceId(
+        deviceId
+    );
 }

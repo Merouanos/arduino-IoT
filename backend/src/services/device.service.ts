@@ -2,6 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcrypt";
 import * as deviceRepository from "../repositories/device.repository";
 import { logger } from "../lib/logger";
+import { AppError } from "../lib/app.error";
 
 export async function createDevice(
     userId: string,
@@ -64,7 +65,10 @@ export async function getDevice(
             { userId, deviceId }
         );
 
-        throw new Error("Device not found");
+        throw new AppError(
+            "Device not found",
+            404
+        );
     }
 
     return {
@@ -91,7 +95,10 @@ export async function updateDevice(
             { userId, deviceId }
         );
 
-        throw new Error("Device not found");
+        throw new AppError(
+            "Device not found",
+            404
+        );
     }
 
     const updateData: deviceRepository.UpdateDeviceData = {
@@ -104,11 +111,6 @@ export async function updateDevice(
     );
 
     if (!updatedDevice) {
-        logger.error(
-            "Failed to update device",
-            deviceId
-        );
-
         throw new Error("Failed to update device");
     }
 
@@ -140,18 +142,16 @@ export async function deleteDevice(
             { userId, deviceId }
         );
 
-        throw new Error("Device not found");
+        throw new AppError(
+            "Device not found",
+            404
+        );
     }
 
     const deletedDevice =
         await deviceRepository.deleteById(deviceId);
 
     if (!deletedDevice) {
-        logger.error(
-            "Failed to delete device",
-            deviceId
-        );
-
         throw new Error("Failed to delete device");
     }
 
@@ -180,7 +180,10 @@ export async function regenerateDeviceKey(
             { userId, deviceId }
         );
 
-        throw new Error("Device not found");
+        throw new AppError(
+            "Device not found",
+            404
+        );
     }
 
     const deviceKey = crypto.randomBytes(32).toString("hex");
@@ -197,12 +200,9 @@ export async function regenerateDeviceKey(
         );
 
     if (!updatedDevice) {
-        logger.error(
-            "Failed to regenerate device key",
-            deviceId
+        throw new Error(
+            "Failed to regenerate device key"
         );
-
-        throw new Error("Failed to regenerate device key");
     }
 
     logger.info(
