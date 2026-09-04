@@ -1,5 +1,6 @@
 import * as alertRepository from "../repositories/alert.repository";
 import * as deviceRepository from "../repositories/device.repository";
+import { getIO } from "../lib/socket";
 import { logger } from "../lib/logger";
 import { AppError } from "../lib/app.error";
 
@@ -47,6 +48,12 @@ export async function createAlert(
             throw new Error("Failed to update alert");
         }
 
+        const io = getIO();
+        io.to(`device:${deviceId}`).emit(
+        "alert",
+        updatedAlert
+        );
+
         logger.info("Active alert updated", {
             deviceId,
             alertId: activeAlert.id,
@@ -66,6 +73,13 @@ export async function createAlert(
 
     const alert =
         await alertRepository.create(data);
+
+
+    const io = getIO();
+    io.to(`device:${deviceId}`).emit(
+        "alert",
+        alert
+    );
 
     logger.info(
         "Alert created successfully",
@@ -196,6 +210,13 @@ export async function resolveAlert(
         );
     }
 
+    const io = getIO();
+
+    io.to(`device:${alert.device_id}`).emit(
+        "alert",
+        resolvedAlert
+    );
+
     logger.info(
         "Alert resolved successfully",
         {
@@ -228,6 +249,11 @@ export async function resolveActiveAlert(
     if (!resolvedAlert) {
         throw new Error("Failed to resolve alert");
     }
+    const io = getIO();
+    io.to(`device:${deviceId}`).emit(
+        "alert",
+        resolvedAlert
+    );
 
     logger.info("Active alert resolved", {
         deviceId,

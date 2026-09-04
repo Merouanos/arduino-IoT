@@ -2,6 +2,7 @@ import * as readingRepository from "../repositories/reading.repository";
 import * as deviceRepository from "../repositories/device.repository";
 import * as alertService from "./alert.service";
 import type { ReadingInput } from "../schemas/reading.schema";
+import { getIO } from "../lib/socket";
 import { logger } from "../lib/logger";
 import { AppError } from "../lib/app.error";
 
@@ -52,6 +53,12 @@ export async function createReading(
             "Failed to update device last seen"
         );
     }
+    const io = getIO();
+    
+    io.to(`device:${deviceId}`).emit(
+        "reading",
+        reading
+    );
 
     logger.info(
         "Sensor reading stored successfully",

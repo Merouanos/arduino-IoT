@@ -56,5 +56,24 @@ services:
       postgres:
         condition: service_healthy
 
+  simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+
+    container_name: arduino-iot-simulator
+
+    restart: unless-stopped
+
+    environment:
+      BACKEND_URL: http://backend:3000
+      DEVICE_ID: ${SIMULATOR_DEVICE_ID}
+      DEVICE_KEY: ${SIMULATOR_DEVICE_KEY}
+      INTERVAL_MS: ${SIMULATOR_INTERVAL_MS:-2000}
+
+    depends_on:
+      backend:
+        condition: service_started
+
 volumes:
   postgres_data:
