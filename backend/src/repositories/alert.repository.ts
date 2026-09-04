@@ -126,3 +126,31 @@ export async function resolve(id: string) {
 
     return result.rows[0] ?? null;
 }
+
+export async function updateActive(
+    id: string,
+    severity: string,
+    message: string
+) {
+    const result = await db.query(
+        `
+        UPDATE alerts
+        SET
+            severity = $1,
+            message = $2
+        WHERE id = $3
+          AND resolved_at IS NULL
+        RETURNING
+            id,
+            device_id,
+            type,
+            severity,
+            message,
+            started_at,
+            resolved_at
+        `,
+        [severity, message, id]
+    );
+
+    return result.rows[0] ?? null;
+}

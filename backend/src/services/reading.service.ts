@@ -1,5 +1,6 @@
 import * as readingRepository from "../repositories/reading.repository";
 import * as deviceRepository from "../repositories/device.repository";
+import * as alertService from "./alert.service";
 import type { ReadingInput } from "../schemas/reading.schema";
 import { logger } from "../lib/logger";
 import { AppError } from "../lib/app.error";
@@ -28,6 +29,20 @@ export async function createReading(
         temperatureStatus,
         humidityStatus,
     });
+
+    await processAlert(
+        deviceId,
+        "temperature",
+        data.temperature_status,
+        data.temperature
+    );
+
+    await processAlert(
+        deviceId,
+        "humidity",
+        data.humidity_status,
+        data.humidity
+    );
 
     const lastSeen =
         await deviceRepository.updateLastSeen(deviceId);
@@ -100,5 +115,30 @@ export async function getReadingHistory(
 
     return readingRepository.findByDeviceId(
         deviceId
+    );
+}
+
+async function processAlert(
+    deviceId: string,
+    type: "temperature" | "humidity",
+    status: ReadingInput["temperature_status"],
+    value: number
+) {
+    if (status === "normal") {
+        await alertService.resolveActiveAlert(
+            deviceId,
+            type
+        );
+
+        return;
+    }
+
+    const severity = status;
+
+    await alertService.createAlert(
+        deviceId,
+        type,
+        severity,
+        `${type} is ${status}: ${value}`
     );
 }

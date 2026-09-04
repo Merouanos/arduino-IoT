@@ -26,22 +26,35 @@ export async function createAlert(
     }
 
     const activeAlert =
-        await alertRepository.findActiveByDeviceIdAndType(
-            deviceId,
-            type
-        );
+    await alertRepository.findActiveByDeviceIdAndType(
+        deviceId,
+        type
+    );
 
     if (activeAlert) {
-        logger.info(
-            "Active alert already exists for device",
-            {
-                deviceId,
-                alertId: activeAlert.id,
-                type: activeAlert.type,
-            }
+        if (activeAlert.severity === severity) {
+            return activeAlert;
+        }
+
+    const updatedAlert =
+        await alertRepository.updateActive(
+            activeAlert.id,
+            severity,
+            message
         );
 
-        return activeAlert;
+        if (!updatedAlert) {
+            throw new Error("Failed to update alert");
+        }
+
+        logger.info("Active alert updated", {
+            deviceId,
+            alertId: activeAlert.id,
+                type,
+        severity,
+        });
+
+        return updatedAlert;
     }
 
     const data: alertRepository.CreateAlertData = {
@@ -190,6 +203,37 @@ export async function resolveAlert(
             deviceId: alert.device_id,
         }
     );
+
+    return resolvedAlert;
+}
+
+
+export async function resolveActiveAlert(
+    deviceId: string,
+    type: string
+) {
+    const activeAlert =
+        await alertRepository.findActiveByDeviceIdAndType(
+            deviceId,
+            type
+        );
+
+    if (!activeAlert) {
+        return null;
+    }
+
+    const resolvedAlert =
+        await alertRepository.resolve(activeAlert.id);
+
+    if (!resolvedAlert) {
+        throw new Error("Failed to resolve alert");
+    }
+
+    logger.info("Active alert resolved", {
+        deviceId,
+        alertId: activeAlert.id,
+        type,
+    });
 
     return resolvedAlert;
 }
