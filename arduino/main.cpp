@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <DHT.h>
 
+
 #define DHTPIN 13
 #define DHTTYPE DHT11
 
@@ -215,6 +216,7 @@ const char* getStatusString(State status) {
 }
 
 unsigned long lastTime = 0;
+
 
 void loop() {
   float temp = temperature.getBuffer().getSmothedValue(
