@@ -1,102 +1,171 @@
 # Arduino IoT Dashboard V2
 
-A full-stack IoT monitoring system built around a physical Arduino sensor, a TypeScript/Express backend, PostgreSQL, Socket.IO, and a React dashboard.
+A full-stack IoT monitoring system built around a physical Arduino sensor, a TypeScript/Express backend, PostgreSQL, Socket.IO, a React dashboard, a realistic Arduino simulator, and a USB serial bridge for physical-device development.
 
 > **V2 is a production-oriented refactor of the original Arduino IoT Dashboard.**
->
-> The original project proved the core idea: an Arduino reads environmental data and a web dashboard displays it in real time. V2 keeps the existing product direction and Arduino logic while rebuilding the backend around a clear, testable architecture with authentication, persistence, validation, device security, Docker, alert lifecycle management, and a realtime communication layer.
+
+The original project proved the core idea: an Arduino reads environmental data and a web dashboard displays it in real time. V2 keeps the existing product direction and Arduino logic while rebuilding the backend around a clear, testable architecture with authentication, persistence, validation, device security, Docker, alert lifecycle management, realtime communication, simulation, and physical-device integration.
 
 ---
 
-## Why V2?
+# Why V2?
 
 V2 turns the prototype into a real full-stack system by introducing:
 
-- Layered backend architecture
-- PostgreSQL persistence for users, devices, readings, and alerts
-- JWT authentication for human users
-- Independent device authentication with hashed device keys
-- Resource ownership checks
-- Runtime request validation with Zod
-- Centralized application error handling
-- Structured application logging
-- Dockerized backend + PostgreSQL development infrastructure
-- Sensor-to-alert business logic
-- Socket.IO infrastructure with authenticated user sockets and device-specific rooms
-- A clear path to production deployment
+* Layered backend architecture
+* PostgreSQL persistence for users, devices, readings, and alerts
+* JWT authentication for human users
+* Independent device authentication with hashed device keys
+* Resource ownership checks
+* Runtime request validation with Zod
+* Centralized application error handling
+* Structured application logging
+* Dockerized backend + PostgreSQL development infrastructure
+* Sensor-to-alert business logic
+* Authenticated Socket.IO connections
+* Device-specific Socket.IO rooms
+* Realtime reading and alert events
+* A realistic stateful Arduino simulator
+* Configurable simulator scenarios
+* A serial bridge for the physical Arduino
+* A clear path to production deployment
 
 The project deliberately stays simple:
 
 > **One backend · one relational database · one frontend · physical IoT hardware**
 
-There are no microservices, Kafka clusters, Kubernetes deployments, or Redis layers unless a real requirement appears later.
+The system does not introduce microservices, Kafka, Kubernetes, Redis, or other distributed infrastructure without a real requirement.
 
 ---
 
 # Architecture
 
+The project has two ways of producing IoT readings:
+
+1. The **real Arduino**, connected to the development computer through USB serial.
+2. The **Arduino simulator**, running as a separate Docker service.
+
+Both ultimately use the same backend reading endpoint.
+
 ```text
-                                 ┌──────────────────────┐
-                                 │       Arduino        │
-                                 │      main.cpp        │
-                                 │                      │
-                                 │   DHT11 + firmware  │
-                                 └──────────┬───────────┘
-                                            │
-                              Device key + sensor readings
-                                            │
-                                            ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Node.js + Express                            │
-│                                                                      │
-│  Routes → Middleware → Controllers → Services → Repositories         │
-│                                                                      │
-│                 │                                  │                 │
-│                 ▼                                  ▼                 │
-│            PostgreSQL                          Socket.IO             │
-│        persistent application data         authenticated realtime    │
-└───────────────────────┬───────────────────────────┬──────────────────┘
-                        │                           │
-                        │                           │
-                        │                           ▼
-                        │                    ┌───────────────┐
-                        │                    │   React UI    │
-                        │                    │   dashboard   │
-                        │                    └───────────────┘
-                        │
-                        ▼
-               users / devices /
-               readings / alerts
+                              ┌──────────────────────┐
+                              │     React Dashboard  │
+                              │   REST + Socket.IO   │
+                              └──────────▲───────────┘
+                                         │
+                                         │
+                    ┌────────────────────┴────────────────────┐
+                    │                                         │
+                    │             Node.js Backend             │
+                    │                                         │
+                    │ Express                                  │
+                    │ Routes                                   │
+                    │ Middleware                               │
+                    │ Controllers                              │
+                    │ Services                                 │
+                    │ Repositories                             │
+                    │ Socket.IO                                │
+                    │                                         │
+                    └──────────────┬───────────┬──────────────┘
+                                   │           │
+                                   │           │
+                                   ▼           ▼
+                            ┌───────────┐   Socket.IO
+                            │ PostgreSQL│      │
+                            └───────────┘      │
+                                               ▼
+                                        device:<deviceId>
+
+
+REAL HARDWARE PATH
+─────────────────────────────────────────────────────────────
+
+┌──────────────┐
+│ Arduino      │
+│ DHT11        │
+│ main.cpp     │
+└──────┬───────┘
+       │
+       │ USB Serial
+       ▼
+┌────────────────┐
+│ Serial Bridge  │
+│ Node + TS      │
+└──────┬─────────┘
+       │
+       │ HTTP
+       │ X-Device-Key
+       ▼
+   Backend API
+
+
+SIMULATOR PATH
+─────────────────────────────────────────────────────────────
+
+┌────────────────────┐
+│ Arduino Simulator  │
+│ Node + TypeScript  │
+│ Docker container   │
+└──────────┬─────────┘
+           │
+           │ HTTP
+           │ X-Device-Key
+           ▼
+       Backend API
 ```
 
-## Request flows
+---
 
-### User REST request
+# Request Flows
+
+## User REST request
 
 Not every endpoint requires authentication. Authentication is applied only where the route needs an authenticated user.
 
 ```text
 React
+
   ↓
+
 Route
+
   ↓
+
 authMiddleware (when required)
+
   ↓
-validate(schema) (when request data needs validation)
+
+validate(schema) (when required)
+
   ↓
+
 Controller
+
   ↓
+
 Service
+
   ↓
+
 Repository
+
   ↓
+
 PostgreSQL
 ```
 
-### Arduino reading ingestion
+---
+
+## Arduino reading ingestion
+
+The physical Arduino does not communicate directly with the backend in the current USB development setup.
 
 ```text
 Arduino
+  ↓
+USB Serial
+  ↓
+Serial Bridge
   ↓
 POST /api/devices/:id/readings
   ↓
@@ -115,23 +184,48 @@ Reading Service
 PostgreSQL
 ```
 
-### Realtime dashboard flow
+---
+
+## Simulator reading ingestion
+
+The simulator behaves as an IoT client and uses the same backend contract as the physical device.
 
 ```text
-Arduino
+Arduino Simulator
   ↓
-REST reading endpoint
+POST /api/devices/:id/readings
+  ↓
+deviceAuthMiddleware
+  ↓
+validate(readingSchema)
+  ↓
+Reading Controller
   ↓
 Reading Service
+  ├── save sensor reading
+  ├── process alerts
+  └── update device.last_seen_at
   ↓
 PostgreSQL
+```
+
+---
+
+## Realtime dashboard flow
+
+After a reading is successfully processed:
+
+```text
+Reading Service
   ↓
 Socket.IO
   ↓
-device:<deviceId> room
+device:<deviceId>
   ↓
 React dashboard
 ```
+
+Realtime alert events follow the same room-based model.
 
 ---
 
@@ -157,16 +251,16 @@ Database
 
 Each layer has a narrow responsibility.
 
-| Layer | Responsibility |
-|---|---|
-| **Routes** | Define API endpoints and compose middleware/controllers |
-| **Middleware** | Authentication, device authentication, validation, and error handling |
-| **Controllers** | Translate HTTP requests into service calls and service results into HTTP responses |
-| **Services** | Business logic and application orchestration |
-| **Repositories** | PostgreSQL access and SQL queries |
-| **Schemas** | Runtime input validation with Zod |
-| **Lib** | Shared technical utilities such as logging and Socket.IO access |
-| **Socket** | Socket.IO authentication and connection/event handling |
+| Layer            | Responsibility                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| **Routes**       | Define API endpoints and compose middleware/controllers                            |
+| **Middleware**   | Authentication, device authentication, validation, and error handling              |
+| **Controllers**  | Translate HTTP requests into service calls and service results into HTTP responses |
+| **Services**     | Business logic and application orchestration                                       |
+| **Repositories** | PostgreSQL access and SQL queries                                                  |
+| **Schemas**      | Runtime input validation with Zod                                                  |
+| **Lib**          | Shared technical utilities such as logging and Socket.IO access                    |
+| **Socket**       | Socket.IO authentication and connection/event handling                             |
 
 A useful mental model:
 
@@ -180,7 +274,7 @@ A useful mental model:
 
 `server.ts` creates the HTTP server, attaches Socket.IO, wires the Socket.IO modules together, and starts listening.
 
-This keeps application configuration separate from network startup and makes the Express app easier to test later.
+This keeps application configuration separate from network startup and makes the Express application easier to test later.
 
 ---
 
@@ -192,15 +286,25 @@ A human user and a physical Arduino are different security principals.
 
 ```text
 email + password
+
       ↓
+
 bcrypt password verification
+
       ↓
+
 JWT generated
+
       ↓
+
 Authorization: Bearer <token>
+
       ↓
+
 authMiddleware
+
       ↓
+
 req.user.id
 ```
 
@@ -208,19 +312,33 @@ req.user.id
 
 ```text
 device creation
+
       ↓
+
 random device key generated
+
       ↓
+
 bcrypt hash stored in PostgreSQL
+
       ↓
+
 raw key returned to the owner
+
       ↓
+
 X-Device-Key: <raw-key>
+
       ↓
+
 deviceAuthMiddleware
+
       ↓
+
 bcrypt.compare()
+
       ↓
+
 req.device.id
 ```
 
@@ -258,7 +376,7 @@ Authentication answers:
 
 > **Who are you?**
 
-For REST users, that produces:
+For REST users:
 
 ```text
 req.user.id
@@ -274,7 +392,7 @@ Authorization answers:
 
 > **Are you allowed to access this resource?**
 
-Resource-specific authorization lives in the service layer. For example, user-facing device, reading, and alert operations use ownership-aware repository methods such as:
+Resource-specific authorization lives in the service layer. User-facing device, reading, and alert operations use ownership-aware repository methods such as:
 
 ```text
 findByIdAndUser(deviceId, userId)
@@ -282,7 +400,7 @@ findByIdAndUser(deviceId, userId)
 
 For Socket.IO, the authenticated socket identity is established first, then device ownership is checked before joining a device room.
 
-This avoids turning authentication middleware into a collection of resource-specific business rules.
+This prevents a valid user JWT from automatically granting access to every device.
 
 ---
 
@@ -299,13 +417,14 @@ validate(schema)
     ↓
 Zod safeParse()
     ↓
+
 ┌───────────┴───────────┐
-invalid                valid
-  ↓                      ↓
-400                    next()
+invalid                 valid
+  ↓                       ↓
+400                     next()
 ```
 
-The same middleware can be reused with:
+Schemas currently cover operations such as:
 
 ```text
 registerSchema
@@ -319,8 +438,8 @@ createAlertSchema
 
 Validation and business rules remain separate:
 
-- **Zod:** Is the data shaped correctly?
-- **Service:** Is this operation allowed and meaningful?
+* **Zod:** Is the data shaped correctly?
+* **Service:** Is this operation allowed and meaningful?
 
 ---
 
@@ -349,9 +468,9 @@ This keeps controllers and services from repeatedly implementing HTTP error resp
 
 ## 8. Logging is centralized behind a small abstraction
 
-The application uses a lightweight logger abstraction rather than scattering raw `console` calls everywhere.
+The application uses a lightweight logger abstraction rather than scattering raw `console` calls throughout the backend.
 
-The current abstraction supports:
+The abstraction supports:
 
 ```text
 info
@@ -359,7 +478,7 @@ warn
 error
 ```
 
-The important distinction is:
+The distinction is:
 
 ```text
 INFO
@@ -390,7 +509,7 @@ device_key_hash
 
 The current repository/service implementation uses these names directly instead of introducing a mapping layer prematurely.
 
-That can be introduced later if the project grows enough to benefit from explicit DB-to-TypeScript mapping.
+A mapping layer can be introduced later if the project grows enough to benefit from explicit DB-to-TypeScript transformation.
 
 ---
 
@@ -454,13 +573,15 @@ warning
 normal
 ```
 
-The same alert row is maintained while the condition remains active. Severity changes update the active alert, and returning to normal sets `resolved_at`.
+The same active alert row is maintained while the condition remains active.
+
+Severity changes update the active alert, and returning to normal sets `resolved_at`.
 
 ---
 
 ## 12. Socket.IO uses authenticated connections and device rooms
 
-Socket.IO is deliberately kept separate from the REST authentication flow while using the same JWT identity model.
+Socket.IO is separate from the REST authentication flow while using the same JWT identity model.
 
 A browser connects with a JWT in the Socket.IO handshake:
 
@@ -480,15 +601,19 @@ The client can then request access to a device room:
 
 ```text
 joinDevice(deviceId)
-       ↓
+
+      ↓
+
 verify socket.user.id owns deviceId
-       ↓
+
+      ↓
+
 join device:<deviceId>
 ```
 
 A valid user JWT does not automatically grant access to every device.
 
-The room model gives the backend a targeted realtime channel:
+The room model provides targeted realtime channels:
 
 ```text
 device:123
@@ -496,11 +621,163 @@ device:456
 device:789
 ```
 
-A future reading event can therefore be emitted only to the appropriate room instead of broadcasting unrelated sensor data to every connected client.
+Realtime events are emitted only to the appropriate device room.
+
+Current realtime events include:
+
+```text
+reading
+alert
+```
+
+The `alert` event is emitted for alert creation, severity updates, and alert resolution.
 
 ---
 
-## 13. No unnecessary distributed infrastructure
+## 13. The simulator behaves like an IoT client
+
+The Arduino simulator is intentionally separate from the backend.
+
+It does not bypass:
+
+* device authentication
+* request validation
+* controllers
+* services
+* repositories
+* PostgreSQL
+* alert processing
+* realtime event emission
+
+Instead:
+
+```text
+Simulator
+   ↓
+X-Device-Key
+   ↓
+POST /api/devices/:id/readings
+   ↓
+real backend pipeline
+```
+
+This allows the simulator to exercise the same application path as the real Arduino.
+
+---
+
+## 14. The simulator uses stateful sensor behavior
+
+The simulator does not generate every reading completely independently.
+
+It maintains sensor state and applies gradual changes.
+
+For example:
+
+```text
+25.1
+25.4
+25.7
+26.0
+26.3
+```
+
+is preferred over:
+
+```text
+22.1
+27.9
+23.4
+28.0
+```
+
+This makes scenario transitions more realistic and allows the backend's alert lifecycle to be tested over time.
+
+Supported scenarios include:
+
+```text
+normal
+temperature-critical
+humidity-high-critical
+humidity-low-critical
+both-critical
+recovery
+```
+
+The simulator supports both:
+
+```text
+random mode
+```
+
+and:
+
+```text
+fixed scenario mode
+```
+
+Random mode changes scenarios after a configurable duration.
+
+Fixed mode remains on the selected scenario for deterministic testing.
+
+---
+
+## 15. The simulator is a separate development service
+
+The simulator runs independently from the backend and PostgreSQL.
+
+During Docker development:
+
+```text
+PostgreSQL
+Backend
+Simulator
+```
+
+are separate services.
+
+This makes the simulator behave like an external IoT client while still remaining convenient to run locally.
+
+---
+
+## 16. The physical Arduino uses USB serial during development
+
+The current Arduino hardware does not contain network hardware.
+
+The Arduino therefore continues to output its JSON reading over USB serial.
+
+A separate Node.js/TypeScript serial bridge reads those lines and forwards valid readings to the backend.
+
+```text
+Arduino
+   ↓
+USB Serial
+   ↓
+Serial Bridge
+   ↓
+HTTP POST
+   ↓
+Backend
+```
+
+This keeps the Arduino firmware focused on sensor acquisition while keeping network communication on the host computer.
+
+The bridge uses the same device authentication header:
+
+```text
+X-Device-Key: <raw-device-key>
+```
+
+and the same reading endpoint:
+
+```text
+POST /api/devices/:id/readings
+```
+
+The serial bridge is not part of the Docker stack because it needs direct access to the physical serial port.
+
+---
+
+## 17. No unnecessary distributed infrastructure
 
 The project intentionally avoids microservices, Kafka, Kubernetes, Redis, and similar infrastructure unless a real requirement appears.
 
@@ -514,6 +791,7 @@ The goal is:
 
 ```text
 arduino-IoT/
+
 │
 ├── arduino/
 │   └── main.cpp
@@ -585,6 +863,31 @@ arduino-IoT/
 │   ├── package-lock.json
 │   └── tsconfig.json
 │
+├── simulator/
+│   ├── src/
+│   │   ├── index.ts
+│   │   ├── config.ts
+│   │   ├── client.ts
+│   │   ├── scenario.ts
+│   │   ├── sensor.ts
+│   │   └── types.ts
+│   │
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tsconfig.json
+│
+├── serial-bridge/
+│   ├── src/
+│   │   ├── index.ts
+│   │   ├── serial.ts
+│   │   ├── client.ts
+│   │   └── types.ts
+│   │
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tsconfig.json
+│
 ├── frontend/
 │
 ├── .env
@@ -600,34 +903,51 @@ arduino-IoT/
 
 ## Backend
 
-- Node.js 22
-- TypeScript
-- Express.js
-- PostgreSQL
-- `pg`
-- Socket.IO
-- Zod
-- JWT (`jsonwebtoken`)
-- bcrypt
-- dotenv
-- Helmet
-- CORS
-- Morgan
-- Docker
+* Node.js 22
+* TypeScript
+* Express.js
+* PostgreSQL
+* `pg`
+* Socket.IO
+* Zod
+* JWT (`jsonwebtoken`)
+* bcrypt
+* dotenv
+* Helmet
+* CORS
+* Morgan
+* Docker
 
 ## Frontend
 
-- React
-- Vite
-- Existing dashboard UI
-- Socket.IO client
-- REST API integration
+* React
+* Vite
+* Socket.IO client
+* REST API integration
+* Existing dashboard UI
+
+## Simulator
+
+* Node.js
+* TypeScript
+* `tsx`
+* `dotenv`
+* Docker
+
+## Serial Bridge
+
+* Node.js
+* TypeScript
+* `serialport`
+* `dotenv`
+* `tsx`
 
 ## Hardware
 
-- Arduino
-- DHT11 temperature/humidity sensor
-- Arduino C++ firmware
+* Arduino
+* DHT11 temperature/humidity sensor
+* Arduino C++ firmware
+* USB serial connection
 
 ---
 
@@ -696,15 +1016,25 @@ User
 
 ```text
 email + password
+
       ↓
+
 bcrypt verification
+
       ↓
+
 JWT generated
+
       ↓
+
 Authorization: Bearer <JWT>
+
       ↓
+
 auth middleware
+
       ↓
+
 req.user.id
 ```
 
@@ -714,23 +1044,37 @@ Passwords are stored as bcrypt hashes, never as plaintext.
 
 ```text
 Device creation
+
       ↓
+
 random device key generated
+
       ↓
+
 bcrypt hash stored in PostgreSQL
+
       ↓
+
 raw key returned once
+
       ↓
-Arduino uses X-Device-Key
+
+Arduino / Simulator uses X-Device-Key
+
       ↓
+
 device auth middleware
+
       ↓
+
 bcrypt.compare()
+
       ↓
+
 req.device.id
 ```
 
-Regenerating a device key replaces the stored hash, invalidating the previous device credential.
+Regenerating a device key replaces the stored hash and invalidates the previous device credential.
 
 ---
 
@@ -772,7 +1116,50 @@ GET   /api/alerts/:id
 PATCH /api/alerts/:id/resolve
 ```
 
-REST is used for normal request/response operations such as authentication, device management, history, and alert actions. Socket.IO is used for the realtime channel.
+REST is used for normal request/response operations such as authentication, device management, history, and alert actions.
+
+Socket.IO is used for realtime notifications.
+
+---
+
+# Socket.IO Events
+
+Authenticated clients communicate through device-specific rooms.
+
+```text
+device:<deviceId>
+```
+
+Current server-to-client realtime events:
+
+```text
+reading
+alert
+```
+
+### Reading event
+
+Emitted after a reading has been successfully processed.
+
+```text
+Reading Service
+   ↓
+emit("reading", reading)
+   ↓
+device:<deviceId>
+```
+
+### Alert event
+
+Emitted when an alert is:
+
+```text
+created
+updated
+resolved
+```
+
+The event payload represents the current alert state.
 
 ---
 
@@ -786,11 +1173,11 @@ arduino/main.cpp
 
 The current firmware:
 
-- Reads a DHT11 temperature/humidity sensor
-- Smooths sensor values using a small rolling buffer
-- Applies persistent warning/critical status logic
-- Calculates free SRAM
-- Emits a reading approximately every 2 seconds over serial
+* Reads a DHT11 temperature/humidity sensor
+* Smooths sensor values using a small rolling buffer
+* Applies persistent warning/critical status logic
+* Calculates free SRAM
+* Emits a JSON reading approximately every 2 seconds over serial
 
 ## Hardware
 
@@ -799,6 +1186,12 @@ The current firmware:
 ```text
 DHT11 data → Arduino pin 13
 ```
+
+### USB
+
+The Arduino is connected to the development computer using USB.
+
+USB is used as the serial transport for the current physical-device development workflow.
 
 ### 7-segment display
 
@@ -826,10 +1219,22 @@ Fields:
 
 ```text
 temperature         → temperature in °C
+
 humidity            → relative humidity in %
+
 free_ram            → free SRAM
+
 temperature_status  → normal / warning / critical
+
 humidity_status     → normal / warning / critical
+```
+
+The Arduino outputs this JSON over serial.
+
+The serial bridge reads the JSON and forwards it to:
+
+```text
+POST /api/devices/:id/readings
 ```
 
 The backend validates the payload with Zod before it reaches the controller/service layer.
@@ -837,10 +1242,128 @@ The backend validates the payload with Zod before it reaches the controller/serv
 The service converts status values into the database representation:
 
 ```text
-normal   → 0
-warning  → 1
-critical → 2
+normal    → 0
+warning   → 1
+critical  → 2
 ```
+
+---
+
+# Arduino Serial Bridge
+
+The serial bridge exists only for the physical Arduino development path.
+
+Its responsibility is:
+
+```text
+USB Serial
+    ↓
+read line
+    ↓
+parse JSON
+    ↓
+send HTTP request
+```
+
+The bridge ignores non-JSON serial messages such as:
+
+```text
+System started...
+Sensor error
+```
+
+Configuration is provided through the root environment file:
+
+```env
+SERIAL_PORT=COM5
+SERIAL_BAUD_RATE=9600
+
+BRIDGE_BACKEND_URL=http://localhost:3000
+
+BRIDGE_DEVICE_ID=
+BRIDGE_DEVICE_KEY=
+```
+
+The bridge runs directly on the host machine because it needs access to the physical serial port.
+
+It is intentionally not part of Docker Compose.
+
+---
+
+# Arduino Simulator
+
+The simulator is a separate TypeScript application and Docker container.
+
+It behaves like an IoT device rather than a backend test utility.
+
+```text
+Simulator
+    ↓
+X-Device-Key
+    ↓
+POST /api/devices/:id/readings
+    ↓
+real backend
+```
+
+## Simulator scenarios
+
+The simulator supports:
+
+```text
+normal
+temperature-critical
+humidity-high-critical
+humidity-low-critical
+both-critical
+recovery
+```
+
+### Normal
+
+Sensor values fluctuate gradually within a normal operating range.
+
+### Temperature critical
+
+Temperature gradually increases through warning and critical thresholds.
+
+### High humidity critical
+
+Humidity gradually increases through warning and critical thresholds.
+
+### Low humidity critical
+
+Humidity gradually decreases through warning and critical thresholds.
+
+### Both critical
+
+Temperature rises while humidity falls, allowing independent temperature and humidity alerts to become active.
+
+### Recovery
+
+The simulator starts in a dangerous state and gradually returns to normal, allowing alert resolution to be tested.
+
+## Simulator modes
+
+The simulator configuration supports:
+
+```text
+random
+```
+
+or a specific scenario:
+
+```text
+temperature-critical
+humidity-high-critical
+humidity-low-critical
+both-critical
+recovery
+```
+
+Random mode changes scenarios after a configurable duration.
+
+Fixed mode is intended for deterministic testing and debugging.
 
 ---
 
@@ -848,10 +1371,10 @@ critical → 2
 
 ## Prerequisites
 
-- Node.js
-- Docker Desktop
-- Arduino IDE
-- Arduino board + DHT11 for physical-device testing
+* Node.js
+* Docker Desktop
+* Arduino IDE
+* Arduino board + DHT11 for physical-device testing
 
 ## Environment configuration
 
@@ -863,9 +1386,15 @@ Create the local environment file from the example:
 .env
 ```
 
-The root `.env` is used by Docker Compose and the backend.
+The root `.env` is shared by the Docker stack, simulator, backend, and serial bridge.
 
-Never commit `.env` or expose backend secrets to the frontend.
+Never commit `.env`.
+
+Never expose backend secrets or device keys to the frontend.
+
+Device credentials should remain in the local `.env` file and should not be placed in `.env.example`.
+
+---
 
 ## Start the backend stack
 
@@ -875,14 +1404,17 @@ From the repository root:
 docker compose up --build
 ```
 
-The current development stack runs:
+The development Docker stack runs:
 
 ```text
 PostgreSQL
 Backend
+Arduino Simulator
 ```
 
 PostgreSQL migrations are initialized from the migration SQL files when the database volume is created.
+
+---
 
 ## Health check
 
@@ -898,7 +1430,24 @@ Expected:
 }
 ```
 
-## Arduino
+---
+
+## Arduino simulator
+
+Create a device through the API and save its returned raw device key.
+
+Then configure:
+
+```env
+SIMULATOR_DEVICE_ID=...
+SIMULATOR_DEVICE_KEY=...
+```
+
+The simulator can then run as part of the Docker Compose stack.
+
+---
+
+## Physical Arduino
 
 Upload:
 
@@ -906,133 +1455,201 @@ Upload:
 arduino/main.cpp
 ```
 
-with the Arduino IDE and connect the board according to the hardware section.
+with the Arduino IDE.
 
-The Arduino remains outside Docker.
+Connect the Arduino to the development computer through USB.
 
-A simulator is planned so the complete data pipeline can later be tested without physical hardware.
+The Arduino outputs sensor JSON through serial at:
+
+```text
+9600 baud
+```
+
+Configure the serial bridge with the correct COM port:
+
+```env
+SERIAL_PORT=COM5
+SERIAL_BAUD_RATE=9600
+
+BRIDGE_BACKEND_URL=http://localhost:3000
+BRIDGE_DEVICE_ID=...
+BRIDGE_DEVICE_KEY=...
+```
+
+Then run the bridge from:
+
+```text
+serial-bridge/
+```
+
+The bridge forwards the physical Arduino readings to the same backend endpoint used by the simulator.
+
+---
 
 ## Frontend
 
-The existing dashboard remains visually consistent. V2 frontend work focuses on authentication, REST integration, reading history, and Socket.IO realtime updates.
+The existing dashboard remains visually consistent.
+
+V2 frontend work focuses on:
+
+* user authentication
+* protected application state
+* device management
+* reading history
+* live sensor updates
+* live alert updates
+* Socket.IO integration
 
 ---
 
 # Testing / Verification
 
-The backend has already been exercised end-to-end against the Dockerized environment.
+The backend has been exercised end-to-end against the Dockerized environment.
 
 Verified areas include:
 
-- Docker container startup
-- PostgreSQL connectivity and migrations
-- Health endpoint
-- User registration and duplicate registration handling
-- Login and invalid credentials
-- JWT-protected routes
-- Zod validation failures
-- Device creation and key generation
-- Device ownership protection
-- Device-key authentication
-- Invalid/missing device credentials
-- Device-key regeneration
-- Sensor reading ingestion
-- `last_seen_at` updates
-- Latest/history reading retrieval
-- Reading-driven alert creation
-- Active-alert deduplication by device + type
-- Alert severity transitions
-- Alert resolution and repeated-resolution handling
-- Multiple alert types on a device
-- Alert ownership protection
-- Global error handling
-- Application logging
+* Docker container startup
+* PostgreSQL connectivity and migrations
+* Health endpoint
+* User registration
+* Duplicate registration handling
+* Login
+* Invalid credentials
+* JWT-protected routes
+* Zod validation failures
+* Device creation
+* Device key generation
+* Device ownership protection
+* Device-key authentication
+* Invalid/missing device credentials
+* Device-key regeneration
+* Sensor reading ingestion
+* `last_seen_at` updates
+* Latest reading retrieval
+* Reading history retrieval
+* Reading-driven alert creation
+* Active-alert deduplication by device + type
+* Alert severity transitions
+* Alert resolution
+* Repeated-resolution handling
+* Multiple alert types on a device
+* Alert ownership protection
+* Global error handling
+* Application logging
 
-The backend is therefore beyond the "server starts" stage: its main API flows have been manually verified against the real Dockerized backend and PostgreSQL environment.
+Realtime functionality has also been implemented and verified at the backend level:
+
+* Authenticated Socket.IO connections
+* JWT verification
+* Device-room authorization
+* Realtime reading emission
+* Realtime alert creation events
+* Realtime alert update events
+* Realtime alert resolution events
+
+The Arduino simulator has been integrated with the real device endpoint and successfully sends readings at a configurable interval.
+
+The serial bridge has also been implemented so the physical Arduino can use the same backend reading contract through USB serial communication.
 
 ---
 
 # Current Implementation Status
 
 ```text
-Backend project setup                     ✅
-Express application + server             ✅
-PostgreSQL connection                     ✅
-Database schema + migrations              ✅
-Repositories                              ✅
-Services                                  ✅
-Middleware                                ✅
-Controllers                               ✅
-Routes                                    ✅
-JWT user authentication                   ✅
-Device authentication                     ✅
-Zod validation                            ✅
-Application error handling                ✅
-Logging                                   ✅
-Reading → alert lifecycle                 ✅
-Docker + PostgreSQL development stack     ✅
-Backend API verification                  ✅
+Backend project setup                    ✅
 
-Socket.IO server                          ✅
-Socket.IO JWT authentication              ✅
-Socket.IO device-room authorization       ✅
-Realtime reading emission                 ⏳
-Realtime alert emission                   ⏳
+Express application + server            ✅
+
+PostgreSQL connection                    ✅
+
+Database schema + migrations             ✅
+
+Repositories                            ✅
+
+Services                                ✅
+
+Middleware                              ✅
+
+Controllers                             ✅
+
+Routes                                  ✅
+
+JWT user authentication                  ✅
+
+Device authentication                    ✅
+
+Zod validation                           ✅
+
+Application error handling               ✅
+
+Logging                                  ✅
+
+Reading → alert lifecycle                ✅
+
+Docker + PostgreSQL development stack    ✅
+
+Backend API verification                 ✅
+
+Socket.IO server                         ✅
+
+Socket.IO JWT authentication             ✅
+
+Socket.IO device-room authorization      ✅
+
+Realtime reading emission                ✅
+
+Realtime alert emission                  ✅
+
+Arduino simulator                        ✅
+
+Simulator random scenarios                ✅
+
+Simulator fixed scenarios                 ✅
+
+Simulator Docker container                ✅
+
+Arduino serial bridge                    ✅
+
+Physical Arduino → backend path          ✅
+
 Frontend V2 integration                   ⏳
-Arduino simulator                         ⏳
-Production deployment                     ⏳
-Automated test suite                      ⏳
-Final hardware wiring documentation       ⏳
+
+Full-stack frontend Docker workflow      ⏳
+
+Production deployment                    ⏳
+
+Automated test suite                     ⏳
+
+Final hardware wiring documentation      ⏳
 ```
 
 ---
 
 # Planned Next Steps
 
-## 1. Complete realtime event emission
-
-Once a reading has been processed, emit the relevant sensor and alert events to the authorized device room.
-
-```text
-Arduino
-  ↓
-REST reading endpoint
-  ↓
-Reading Service
-  ↓
-PostgreSQL
-  ↓
-Socket.IO
-  ↓
-device:<deviceId>
-  ↓
-React
-```
-
-## 2. Integrate the existing React dashboard
+## 1. Integrate the existing React dashboard
 
 Add:
 
-- user authentication
-- protected application state
-- device management
-- reading history
-- live sensor updates
-- live alert updates
+* user authentication
+* protected application state
+* device management
+* reading history
+* live sensor updates
+* live alert updates
+* Socket.IO connection and device-room subscription
 
 The dashboard design will remain visually consistent.
 
-## 3. Build the Arduino simulator
+---
 
-Generate Arduino-compatible readings so development and automated verification can continue without physical hardware.
+## 2. Full-stack Docker Compose
 
-The simulator should exercise the same request contract as the real Arduino.
+Extend the current Docker development environment to include the frontend so the complete application can be started consistently.
 
-## 4. Full-stack Docker Compose
+---
 
-Extend the current development environment to include the frontend so the complete system can be started consistently.
-
-## 5. Production deployment
+## 3. Production deployment
 
 Planned direction:
 
@@ -1048,25 +1665,47 @@ PostgreSQL
 
 The physical Arduino remains an external IoT client.
 
+The development serial bridge is not a production backend service; it exists to connect USB-connected hardware to the API during local development.
+
+---
+
+## 4. Automated testing
+
+Add automated tests for:
+
+```text
+authentication
+authorization
+validation
+device authentication
+reading ingestion
+alert lifecycle
+Socket.IO events
+```
+
 ---
 
 # Engineering Principles
 
 This project is intentionally built around a few principles:
 
-- Keep responsibilities explicit.
-- Keep controllers thin.
-- Keep business rules in services.
-- Keep SQL inside repositories.
-- Validate untrusted input at the boundary.
-- Authenticate human users and physical devices independently.
-- Enforce resource ownership close to business logic.
-- Never expose or log passwords, JWTs, device keys, or password hashes.
-- Use REST for normal request/response operations.
-- Use Socket.IO for realtime notifications.
-- Prefer simple architecture over unnecessary infrastructure.
-- Preserve working product/UI behavior while improving the backend underneath it.
-- Add complexity only when the system has a real reason to need it.
+* Keep responsibilities explicit.
+* Keep controllers thin.
+* Keep business rules in services.
+* Keep SQL inside repositories.
+* Validate untrusted input at the boundary.
+* Authenticate human users and physical devices independently.
+* Enforce resource ownership close to business logic.
+* Never expose or log passwords, JWTs, device keys, or password hashes.
+* Use REST for normal request/response operations.
+* Use Socket.IO for realtime notifications.
+* Keep the simulator separate from the backend.
+* Make the simulator exercise the real device API.
+* Keep the physical Arduino firmware focused on sensing.
+* Use a host-side serial bridge when the hardware lacks direct network connectivity.
+* Prefer simple architecture over unnecessary infrastructure.
+* Preserve working product/UI behavior while improving the backend underneath it.
+* Add complexity only when the system has a real reason to need it.
 
 > **Clean architecture, not architecture for architecture's sake.**
 
@@ -1076,14 +1715,30 @@ This project is intentionally built around a few principles:
 
 V2 is a continuation of the original Arduino IoT Dashboard.
 
-The existing UI and Arduino behavior are intentionally preserved as the product foundation while the backend is being rebuilt into a more production-oriented system.
+The existing UI and Arduino behavior are intentionally preserved as the product foundation while the backend is rebuilt into a more production-oriented system.
+
+The original Arduino firmware remains responsible for:
+
+```text
+sensor acquisition
+smoothing
+status detection
+memory measurement
+serial JSON output
+```
+
+V2 adds the surrounding infrastructure needed to turn that prototype into a complete IoT application.
 
 ---
 
 # Status
 
 > **Backend architecture: complete and manually verified.**
->
-> **Realtime infrastructure: implemented, authenticated, and authorized at the device-room level.**
->
-> The next milestone is connecting realtime reading/alert events to the React dashboard, followed by the Arduino simulator, full-stack Docker workflow, and production deployment.
+
+> **Realtime infrastructure: implemented, authenticated, authorized, and connected to reading/alert state changes.**
+
+> **Arduino simulation: implemented with realistic stateful scenarios and Docker support.**
+
+> **Physical Arduino integration: implemented through a USB serial bridge using the same device-authenticated reading endpoint.**
+
+> **The next major milestone is integrating the existing React dashboard with the REST and Socket.IO APIs.**
