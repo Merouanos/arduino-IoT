@@ -823,10 +823,9 @@ PATCH /api/devices/:id/simulator
 The backend only forwards control when:
 
 * the user owns the requested device
-* the requested device matches `SIMULATOR_DEVICE_ID`
 * the internal simulator control token is configured
 
-The simulator exposes its own internal control server on port `4000` inside the Docker network. It requires `X-Simulator-Token` and is not published to the host.
+The simulator exposes its own internal control server on port `4000` inside the Docker network. It requires `X-Simulator-Token` and is not published to the host. One simulator container can maintain up to five independent device sessions at the same time.
 
 ---
 
@@ -1527,17 +1526,15 @@ Expected:
 
 ## Arduino simulator
 
-Create a device through the API and save its returned raw device key.
-
-Then configure:
+Configure the shared internal token in both the backend and simulator services:
 
 ```env
-SIMULATOR_DEVICE_ID=...
-SIMULATOR_DEVICE_KEY=...
+SIMULATOR_INTERNAL_URL=http://simulator:4000
+SIMULATOR_BACKEND_INTERNAL_URL=http://backend:3000
 SIMULATOR_CONTROL_TOKEN=...
 ```
 
-The simulator can then run as part of the Docker Compose stack. The control token is shared only by the backend and simulator containers; it is never exposed to the frontend.
+The simulator can then run as part of the Docker Compose stack. Users create and select their own devices in the authenticated dashboard; activating the simulator starts a session for that device. The simulator sends readings through the internal backend route, so users do not need to configure or expose a simulator device ID or device key. The control token is shared only by the backend and simulator containers; it is never exposed to the frontend.
 
 ---
 
@@ -1740,7 +1737,7 @@ Frontend verification includes:
 * Manual alert resolution flow
 * Simulator control UI state and backend integration
 
-The Arduino simulator uses the real device endpoint and sends readings at a configurable interval when its `SIMULATOR_DEVICE_ID` and `SIMULATOR_DEVICE_KEY` match an existing registered device. Device credentials are intentionally not seeded automatically because raw keys are shown only once and must remain private.
+The hosted Arduino simulator supports multiple user-owned device sessions in one container. Each session has its own sensor state and scenario, and readings enter through the internal simulator route before using the same persistence, alert, last-seen, and Socket.IO logic as physical Arduino readings. Physical Arduino authentication remains device-key based.
 
 The serial bridge has also been implemented so the physical Arduino can use the same backend reading contract through USB serial communication.
 

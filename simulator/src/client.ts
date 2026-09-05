@@ -1,27 +1,37 @@
 import type { SensorReading } from "./types.js";
 
-interface SimulatorConfig {
-    backendUrl: string;
-    deviceId: string;
-    deviceKey: string;
-}
+const backendInternalUrl =
+    process.env.SIMULATOR_BACKEND_INTERNAL_URL ??
+    "http://backend:3000";
+
+const simulatorToken =
+    process.env.SIMULATOR_CONTROL_TOKEN;
 
 export async function sendReading(
-    config: SimulatorConfig,
+    deviceId: string,
     reading: SensorReading
 ): Promise<void> {
+    if (!simulatorToken) {
+        throw new Error(
+            "SIMULATOR_CONTROL_TOKEN is not configured"
+        );
+    }
+
     const url =
-        `${config.backendUrl}/api/devices/${config.deviceId}/readings`;
+        `${backendInternalUrl}/internal/simulator/readings`;
 
     const response = await fetch(url, {
         method: "POST",
 
         headers: {
             "Content-Type": "application/json",
-            "X-Device-Key": config.deviceKey,
+            "X-Simulator-Token": simulatorToken,
         },
 
-        body: JSON.stringify(reading),
+        body: JSON.stringify({
+            deviceId,
+            ...reading,
+        }),
     });
 
     const body = await response.text();

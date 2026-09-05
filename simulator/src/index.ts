@@ -2,31 +2,14 @@ import "dotenv/config";
 import { createServer } from "node:http";
 
 import {
-    generateReading,
-    setScenario,
-} from "./sensor.js";
-
-import {
-    scenarioManager,
-} from "./scenario.js";
-
-import {
-    sendReading,
-} from "./client.js";
-
-import {
-    SIMULATION_CONFIG,
-} from "./config.js";
-
-const backendUrl =
-    process.env.BACKEND_URL ??
-    "http://backend:3000";
-
-const deviceId =
-    process.env.DEVICE_ID;
-
-const deviceKey =
-    process.env.DEVICE_KEY;
+    getSession,
+    resumeSession,
+    startSession,
+    stopSession,
+    suspendSession,
+} from "./session.js";
+import type { SessionScenario } from "./session.js";
+import { sendReading } from "./client.js";
 
 const controlToken =
     process.env.SIMULATOR_CONTROL_TOKEN;
@@ -35,161 +18,166 @@ const controlPort = Number(
     process.env.SIMULATOR_CONTROL_PORT ?? 4000
 );
 
-if (!deviceId) {
-    throw new Error(
-        "DEVICE_ID is required"
-    );
+const scenarios = new Set([
+    "random",
+    "normal",
+    "temperature-critical",
+    "humidity-high-critical",
+    "humidity-low-critical",
+    "both-critical",
+    "recovery",
+]);
+
+function sendJson(
+    response: import("node:http").ServerResponse,
+    status: number,
+    body: unknown
+) {
+    response.writeHead(status, {
+        "Content-Type": "application/json",
+    });
+    response.end(JSON.stringify(body));
 }
 
-if (!deviceKey) {
-    throw new Error(
-        "DEVICE_KEY is required"
-    );
-}
+async function readBody(
+    request: import("node:http").IncomingMessage
+) {
+    let body = "";
 
-const config = {
-    backendUrl,
-    deviceId,
-    deviceKey,
-};
+    for await (const chunk of request) {
+        body += chunk;
+    }
 
-let activeScenario =
-    scenarioManager.getScenario();
-
-let suspended = false;
-
-setScenario(activeScenario);
-
-async function runCycle(): Promise<void> {
-    if (suspended) {
-        return;
+    if (!body) {
+        return {};
     }
 
     try {
-        const scenario =
-            scenarioManager.getScenario();
-
-        /**
-         * Only reset the sensor simulator
-         * when the scenario actually changes.
-         */
-        if (scenario !== activeScenario) {
-            activeScenario = scenario;
-
-            setScenario(
-                activeScenario
-            );
-        }
-
-        const reading =
-            generateReading();
-
-        console.log(
-            "[SIMULATOR]",
-            {
-                scenario: activeScenario,
-
-                temperature:
-                    reading.temperature,
-
-                humidity:
-                    reading.humidity,
-
-                temperatureStatus:
-                    reading.temperature_status,
-
-                humidityStatus:
-                    reading.humidity_status,
-
-                freeRam:
-                    reading.free_ram,
-            }
-        );
-
-        await sendReading(
-            config,
-            reading
-        );
-    } catch (error) {
-        console.error(
-            "[SIMULATOR] Failed:",
-            error
-        );
+        return JSON.parse(body) as Record<string, unknown>;
+    } catch {
+        return null;
     }
 }
 
-const controlServer = createServer((request, response) => {
+const controlServer = createServer(async (request, response) => {
     if (
         !controlToken ||
         request.headers["x-simulator-token"] !== controlToken
     ) {
-        response.writeHead(401, {
-            "Content-Type": "application/json",
-        });
-        response.end(JSON.stringify({ message: "Unauthorized" }));
+        sendJson(response, 401, { message: "Unauthorized" });
         return;
     }
 
-    if (request.method === "GET" && request.url === "/status") {
-        response.writeHead(200, {
-            "Content-Type": "application/json",
-        });
-        response.end(JSON.stringify({ suspended }));
-        return;
-    }
+    const url = new URL(
+        request.url ?? "/",
+        "http://simulator.local"
+    );
 
     if (
-        request.method === "POST" &&
-        (request.url === "/pause" || request.url === "/resume")
+        request.method === "GET" &&
+        url.pathname.startsWith("/sessions/")
     ) {
-        suspended = request.url === "/pause";
-        console.log(
-            `[SIMULATOR] ${suspended ? "Suspended" : "Resumed"}`
+        const deviceId = decodeURIComponent(
+            url.pathname.slice("/sessions/".length)
         );
-        response.writeHead(200, {
-            "Content-Type": "application/json",
-        });
-        response.end(JSON.stringify({ suspended }));
+        const session = getSession(deviceId);
+
+        sendJson(response, 200, session
+            ? {
+                active: true,
+                deviceId: session.deviceId,
+                scenario: session.scenario,
+                suspended: session.suspended,
+            }
+            : { active: false, suspended: true });
         return;
     }
 
-    response.writeHead(404);
-    response.end();
+    if (request.method !== "POST") {
+        sendJson(response, 404, { message: "Not found" });
+        return;
+    }
+
+    const body = await readBody(request);
+    const deviceId = body && body.deviceId;
+
+    if (
+        !body ||
+        typeof deviceId !== "string" ||
+        deviceId.length === 0
+    ) {
+        sendJson(response, 400, {
+            message: "deviceId is required",
+        });
+        return;
+    }
+
+    try {
+        if (url.pathname === "/sessions/start") {
+            const requestedScenario = body.scenario ?? "random";
+
+            if (
+                typeof requestedScenario !== "string" ||
+                !scenarios.has(requestedScenario)
+            ) {
+                sendJson(response, 400, {
+                    message: "Invalid simulator scenario",
+                });
+                return;
+            }
+
+            const session = startSession(
+                deviceId,
+                requestedScenario as SessionScenario,
+                sendReading
+            );
+
+            sendJson(response, 200, {
+                active: true,
+                deviceId: session.deviceId,
+                scenario: session.scenario,
+                suspended: session.suspended,
+            });
+            return;
+        }
+
+        if (url.pathname === "/sessions/stop") {
+            stopSession(deviceId);
+            sendJson(response, 200, {
+                active: false,
+                suspended: true,
+            });
+            return;
+        }
+
+        if (url.pathname === "/sessions/suspend") {
+            suspendSession(deviceId);
+        } else if (url.pathname === "/sessions/resume") {
+            resumeSession(deviceId);
+        } else {
+            sendJson(response, 404, { message: "Not found" });
+            return;
+        }
+
+        const session = getSession(deviceId);
+        sendJson(response, 200, {
+            active: Boolean(session),
+            suspended: session?.suspended ?? true,
+        });
+    } catch (error) {
+        const message = error instanceof Error
+            ? error.message
+            : "Simulator request failed";
+        const status = message === "Simulator capacity reached"
+            ? 503
+            : 500;
+
+        sendJson(response, status, { message });
+    }
 });
 
 console.log(
-    "[SIMULATOR] Starting..."
-);
-
-console.log(
-    `[SIMULATOR] Backend: ${backendUrl}`
-);
-
-console.log(
-    `[SIMULATOR] Device: ${deviceId}`
-);
-
-console.log(
-    `[SIMULATOR] Interval: ${
-        SIMULATION_CONFIG.intervalMs
-    }ms`
-);
-
-console.log(
-    `[SIMULATOR] Mode: ${
-        SIMULATION_CONFIG.mode
-    }`
-);
-
-console.log(
-    `[SIMULATOR] Control port: ${controlPort}`
+    `[SIMULATOR] Control server listening on port ${controlPort}`
 );
 
 controlServer.listen(controlPort, "0.0.0.0");
-
-await runCycle();
-
-setInterval(
-    runCycle,
-    SIMULATION_CONFIG.intervalMs
-);

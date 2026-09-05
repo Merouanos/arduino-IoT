@@ -32,12 +32,15 @@ function randomBetween(min, max) {
 function randomDrift(amount) {
     return randomBetween(-amount, amount);
 }
-class SensorSimulator {
+export class SensorSimulator {
     temperature = 25;
     humidity = 55;
     freeRam = 1400;
     scenario = "normal";
     step = 0;
+    constructor(scenario = "normal") {
+        this.setScenario(scenario);
+    }
     setScenario(scenario) {
         // Don't reset the simulator if the
         // scenario hasn't actually changed.

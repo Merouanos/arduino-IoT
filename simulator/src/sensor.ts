@@ -72,7 +72,7 @@ function randomDrift(
     );
 }
 
-class SensorSimulator {
+export class SensorSimulator {
     private temperature = 25;
     private humidity = 55;
     private freeRam = 1400;
@@ -81,6 +81,12 @@ class SensorSimulator {
         "normal";
 
     private step = 0;
+
+    constructor(
+        scenario: SimulationScenario = "normal"
+    ) {
+        this.setScenario(scenario);
+    }
 
     setScenario(
         scenario: SimulationScenario

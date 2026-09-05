@@ -2,65 +2,128 @@ import { AppError } from "../lib/app.error";
 import * as deviceRepository from "../repositories/device.repository";
 
 const simulatorUrl =
-    process.env.SIMULATOR_URL ?? "http://simulator:4000";
-const simulatorToken = process.env.SIMULATOR_CONTROL_TOKEN;
+    process.env.SIMULATOR_INTERNAL_URL;
 
-async function requestSimulator(
-    path: "/status" | "/pause" | "/resume"
+const simulatorToken =
+    process.env.SIMULATOR_CONTROL_TOKEN;
+
+async function simulatorRequest(
+    path: string,
+    options: RequestInit = {}
 ) {
-    if (!simulatorToken) {
-        throw new AppError("Simulator control is not configured", 503);
-    }
-
-    try {
-        const response = await fetch(`${simulatorUrl}${path}`, {
-            method: path === "/status" ? "GET" : "POST",
-            headers: {
-                "X-Simulator-Token": simulatorToken,
-            },
-        });
-
-        if (!response.ok) {
-            throw new AppError("Simulator control unavailable", 503);
-        }
-
-        return (await response.json()) as { suspended: boolean };
-    } catch (error) {
-        if (error instanceof AppError) {
-            throw error;
-        }
-
-        throw new AppError("Simulator control unavailable", 503);
-    }
-}
-
-async function assertSimulatorDevice(
-    deviceId: string,
-    userId: string
-) {
-    const device = await deviceRepository.findByIdAndUser(
-        deviceId,
-        userId
-    );
-
-    if (!device) {
-        throw new AppError("Device not found", 404);
-    }
-
-    if (process.env.SIMULATOR_DEVICE_ID !== deviceId) {
+    if (
+        !simulatorUrl ||
+        !simulatorToken
+    ) {
         throw new AppError(
-            "Simulator is not assigned to this device",
-            409
+            "Simulator is not configured",
+            503
         );
     }
+
+    const response = await fetch(
+        `${simulatorUrl}${path}`,
+        {
+            ...options,
+            headers: {
+                "Content-Type":
+                    "application/json",
+                "X-Simulator-Token":
+                    simulatorToken,
+                ...(options.headers ?? {}),
+            },
+        }
+    );
+
+    if (!response.ok) {
+        const message = await response.text();
+        throw new AppError(
+            message || "Simulator request failed",
+            502
+        );
+    }
+
+    return response.json();
 }
 
-export async function getStatus(
+export async function startSimulation(
+    deviceId: string,
+    userId: string,
+    scenario: string
+) {
+    const device =
+        await deviceRepository.findByIdAndUser(
+            deviceId,
+            userId
+        );
+
+    if (!device) {
+        throw new AppError(
+            "Device not found",
+            404
+        );
+    }
+
+    return simulatorRequest(
+        "/sessions/start",
+        {
+            method: "POST",
+            body: JSON.stringify({
+                deviceId,
+                scenario,
+            }),
+        }
+    );
+}
+
+export async function stopSimulation(
     deviceId: string,
     userId: string
 ) {
-    await assertSimulatorDevice(deviceId, userId);
-    return requestSimulator("/status");
+    const device =
+        await deviceRepository.findByIdAndUser(
+            deviceId,
+            userId
+        );
+
+    if (!device) {
+        throw new AppError(
+            "Device not found",
+            404
+        );
+    }
+
+    return simulatorRequest(
+        "/sessions/stop",
+        {
+            method: "POST",
+            body: JSON.stringify({
+                deviceId,
+            }),
+        }
+    );
+}
+
+export async function getSimulationStatus(
+    deviceId: string,
+    userId: string
+) {
+    const device =
+        await deviceRepository.findByIdAndUser(
+            deviceId,
+            userId
+        );
+
+    if (!device) {
+        throw new AppError(
+            "Device not found",
+            404
+        );
+    }
+
+    return simulatorRequest(
+        `/sessions/${deviceId}`
+    );
 }
 
 export async function setSuspended(
@@ -68,6 +131,34 @@ export async function setSuspended(
     userId: string,
     suspended: boolean
 ) {
-    await assertSimulatorDevice(deviceId, userId);
-    return requestSimulator(suspended ? "/pause" : "/resume");
+    const device =
+        await deviceRepository.findByIdAndUser(
+            deviceId,
+            userId
+        );
+
+    if (!device) {
+        throw new AppError(
+            "Device not found",
+            404
+        );
+    }
+
+    if (!suspended) {
+        return startSimulation(
+            deviceId,
+            userId,
+            "random"
+        );
+    }
+
+    return simulatorRequest(
+        "/sessions/suspend",
+        {
+            method: "POST",
+            body: JSON.stringify({ deviceId }),
+        }
+    );
 }
+
+export const getStatus = getSimulationStatus;

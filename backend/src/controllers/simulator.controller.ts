@@ -16,7 +16,10 @@ export async function getStatus(
             deviceId,
             req.user.id
         );
-        return res.status(200).json(status);
+        return res.status(200).json({
+            suspended: status.suspended ?? !status.active,
+            ...status,
+        });
     } catch (error) {
         next(error);
     }
