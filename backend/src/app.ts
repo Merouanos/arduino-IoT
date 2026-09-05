@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.routes";
 import deviceRoutes from "./routes/device.routes";
 import readingRoutes from "./routes/reading.routes";
 import alertRoutes from "./routes/alert.routes";
+import simulatorRoutes from "./routes/simulator.routes";
 
 import { errorMiddleware } from "./middleware/error.middleware";
 
@@ -27,6 +28,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/devices", deviceRoutes);
 app.use("/api", readingRoutes);
 app.use("/api", alertRoutes);
+app.use("/api", simulatorRoutes);
 
 app.use(errorMiddleware);
 

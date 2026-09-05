@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createServer } from "node:http";
 
 import {
     generateReading,
@@ -27,6 +28,13 @@ const deviceId =
 const deviceKey =
     process.env.DEVICE_KEY;
 
+const controlToken =
+    process.env.SIMULATOR_CONTROL_TOKEN;
+
+const controlPort = Number(
+    process.env.SIMULATOR_CONTROL_PORT ?? 4000
+);
+
 if (!deviceId) {
     throw new Error(
         "DEVICE_ID is required"
@@ -48,9 +56,15 @@ const config = {
 let activeScenario =
     scenarioManager.getScenario();
 
+let suspended = false;
+
 setScenario(activeScenario);
 
 async function runCycle(): Promise<void> {
+    if (suspended) {
+        return;
+    }
+
     try {
         const scenario =
             scenarioManager.getScenario();
@@ -104,6 +118,45 @@ async function runCycle(): Promise<void> {
     }
 }
 
+const controlServer = createServer((request, response) => {
+    if (
+        !controlToken ||
+        request.headers["x-simulator-token"] !== controlToken
+    ) {
+        response.writeHead(401, {
+            "Content-Type": "application/json",
+        });
+        response.end(JSON.stringify({ message: "Unauthorized" }));
+        return;
+    }
+
+    if (request.method === "GET" && request.url === "/status") {
+        response.writeHead(200, {
+            "Content-Type": "application/json",
+        });
+        response.end(JSON.stringify({ suspended }));
+        return;
+    }
+
+    if (
+        request.method === "POST" &&
+        (request.url === "/pause" || request.url === "/resume")
+    ) {
+        suspended = request.url === "/pause";
+        console.log(
+            `[SIMULATOR] ${suspended ? "Suspended" : "Resumed"}`
+        );
+        response.writeHead(200, {
+            "Content-Type": "application/json",
+        });
+        response.end(JSON.stringify({ suspended }));
+        return;
+    }
+
+    response.writeHead(404);
+    response.end();
+});
+
 console.log(
     "[SIMULATOR] Starting..."
 );
@@ -127,6 +180,12 @@ console.log(
         SIMULATION_CONFIG.mode
     }`
 );
+
+console.log(
+    `[SIMULATOR] Control port: ${controlPort}`
+);
+
+controlServer.listen(controlPort, "0.0.0.0");
 
 await runCycle();
 

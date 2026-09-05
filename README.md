@@ -25,6 +25,8 @@ V2 turns the prototype into a real full-stack system by introducing:
 * Authenticated Socket.IO connections
 * Device-specific Socket.IO rooms
 * Realtime reading and alert events
+* Frontend device activity and history workspace
+* Frontend simulator suspend and activate controls
 * A realistic stateful Arduino simulator
 * Configurable simulator scenarios
 * A serial bridge for the physical Arduino
@@ -226,6 +228,28 @@ React dashboard
 ```
 
 Realtime alert events follow the same room-based model.
+
+---
+
+## Simulator control flow
+
+The simulator can be suspended from the authenticated frontend without stopping or recreating its container.
+
+```text
+React dashboard
+  ↓
+PATCH /api/devices/:id/simulator
+  ↓
+authMiddleware
+  ↓
+Simulator Service
+  ↓
+internal simulator control endpoint
+  ↓
+Simulator reading loop pauses or resumes
+```
+
+When suspended, the simulator process remains available but stops generating and sending readings. Activating it resumes the existing loop immediately.
 
 ---
 
@@ -787,6 +811,25 @@ The goal is:
 
 ---
 
+## 18. Simulator lifecycle is controlled through the backend
+
+The browser never communicates directly with the simulator container. The backend exposes authenticated, ownership-checked proxy routes:
+
+```text
+GET   /api/devices/:id/simulator
+PATCH /api/devices/:id/simulator
+```
+
+The backend only forwards control when:
+
+* the user owns the requested device
+* the requested device matches `SIMULATOR_DEVICE_ID`
+* the internal simulator control token is configured
+
+The simulator exposes its own internal control server on port `4000` inside the Docker network. It requires `X-Simulator-Token` and is not published to the host.
+
+---
+
 # Repository Structure
 
 ```text
@@ -833,7 +876,8 @@ arduino-IoT/
 │   │   │   ├── auth.routes.ts
 │   │   │   ├── device.routes.ts
 │   │   │   ├── reading.routes.ts
-│   │   │   └── alert.routes.ts
+│   │   │   ├── alert.routes.ts
+│   │   │   └── simulator.routes.ts
 │   │   │
 │   │   ├── schemas/
 │   │   │   ├── auth.schema.ts
@@ -845,7 +889,8 @@ arduino-IoT/
 │   │   │   ├── auth.service.ts
 │   │   │   ├── device.service.ts
 │   │   │   ├── reading.service.ts
-│   │   │   └── alert.service.ts
+│   │   │   ├── alert.service.ts
+│   │   │   └── simulator.service.ts
 │   │   │
 │   │   ├── socket/
 │   │   │   ├── auth.ts
@@ -889,6 +934,32 @@ arduino-IoT/
 │   └── tsconfig.json
 │
 ├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   ├── components/
+│   │   │   ├── alerts/
+│   │   │   ├── dashboard/
+│   │   │   │   ├── SensorActivityPanel.tsx
+│   │   │   │   └── SimulatorControl.tsx
+│   │   │   ├── devices/
+│   │   │   └── layout/
+│   │   ├── context/
+│   │   ├── hooks/
+│   │   ├── pages/
+│   │   │   ├── AccountPage.tsx
+│   │   │   ├── ActivityPage.tsx
+│   │   │   ├── AlertsPage.tsx
+│   │   │   ├── DashboardPage.tsx
+│   │   │   ├── DevicesPage.tsx
+│   │   │   ├── LoginPage.tsx
+│   │   │   ├── ReadingsPage.tsx
+│   │   │   └── RegisterPage.tsx
+│   │   ├── socket/
+│   │   ├── types/
+│   │   └── utils/
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── README.md
 │
 ├── .env
 ├── .env.example
@@ -920,11 +991,16 @@ arduino-IoT/
 
 ## Frontend
 
-* React
+* React 19
+* TypeScript
 * Vite
+* React Router
+* Axios
 * Socket.IO client
-* REST API integration
-* Existing dashboard UI
+* Tailwind CSS
+* Framer Motion
+* Recharts
+* Oxlint
 
 ## Simulator
 
@@ -1115,6 +1191,23 @@ GET   /api/devices/:id/alerts
 GET   /api/alerts/:id
 PATCH /api/alerts/:id/resolve
 ```
+
+## Simulator control
+
+```text
+GET   /api/devices/:id/simulator
+PATCH /api/devices/:id/simulator
+```
+
+The `PATCH` body is:
+
+```json
+{
+  "suspended": true
+}
+```
+
+`suspended: true` pauses the simulator reading loop. `suspended: false` activates it again.
 
 REST is used for normal request/response operations such as authentication, device management, history, and alert actions.
 
@@ -1441,9 +1534,10 @@ Then configure:
 ```env
 SIMULATOR_DEVICE_ID=...
 SIMULATOR_DEVICE_KEY=...
+SIMULATOR_CONTROL_TOKEN=...
 ```
 
-The simulator can then run as part of the Docker Compose stack.
+The simulator can then run as part of the Docker Compose stack. The control token is shared only by the backend and simulator containers; it is never exposed to the frontend.
 
 ---
 
@@ -1488,17 +1582,105 @@ The bridge forwards the physical Arduino readings to the same backend endpoint u
 
 ## Frontend
 
-The existing dashboard remains visually consistent.
+The React dashboard is integrated with the REST and Socket.IO APIs while preserving the existing dark, champagne, gold, green, amber, and red visual language.
 
-V2 frontend work focuses on:
+Implemented frontend capabilities:
 
-* user authentication
-* protected application state
-* device management
-* reading history
-* live sensor updates
-* live alert updates
-* Socket.IO integration
+* user registration and login
+* protected routes and persistent authentication state
+* responsive application shell with desktop sidebar and mobile bottom navigation
+* device creation, selection, rename, deletion, and key regeneration
+* full-screen device detail view with device status and copyable device ID
+* latest reading and historical temperature data
+* realtime reading updates through authenticated Socket.IO device rooms
+* realtime alert updates and connection status feedback
+* alert filtering between all and active events
+* alert resolution from the dashboard
+* account/profile updates for email and password
+* dedicated `ACTIVITY` workspace in the left navigation
+* historical temperature and humidity graphing
+* alert lifecycle timeline with started, active, and resolved states
+* simulator suspend and activate controls for the selected device
+
+## Frontend Architecture
+
+The frontend is organized around route-level pages, shared context, domain API modules, focused presentation components, and realtime hooks.
+
+```text
+React Router
+  ↓
+ProtectedRoute
+  ↓
+AppLayout
+  ├── Sidebar
+  ├── TopBar
+  └── Outlet
+    ├── DashboardPage
+    ├── DevicesPage
+    ├── ActivityPage
+    └── AccountPage
+```
+
+Shared state ownership is intentionally small:
+
+| Area | Owner | Responsibility |
+| ---- | ----- | -------------- |
+| Authentication | `AuthContext` | User, JWT, session persistence, profile updates |
+| Devices | `DeviceContext` | Device list, selected device, refresh, selection persistence |
+| Dashboard data | `DashboardPage` | Latest reading, history, alerts for the selected device |
+| Realtime lifecycle | `useDeviceSocket` | Authenticated socket, device room, reading/alert events, status |
+| Simulator control | `SimulatorControl` | Suspend/activate state and backend control actions for the configured simulator |
+| HTTP transport | `src/api` | Typed auth, device, reading, and alert requests |
+| Backend-to-view mapping | `dashboard-adapter.ts` | Converts backend snake_case readings into dashboard models |
+
+The dashboard keeps selected-device sensor state local to `DashboardPage`. This prevents device readings and alert subscriptions from leaking into unrelated routes while allowing the device context to remain the single source of truth for selection.
+
+### Frontend request flow
+
+```text
+Page or component
+  ↓
+Typed API module
+  ↓
+Axios client
+  ↓
+Authorization: Bearer <JWT>
+  ↓
+Backend REST API
+```
+
+### Frontend realtime flow
+
+```text
+AuthContext token + selected device
+  ↓
+useDeviceSocket
+  ↓
+Socket.IO connection
+  ↓
+joinDevice(deviceId)
+  ↓
+reading / alert events
+  ↓
+DashboardPage state
+  ↓
+Dashboard widgets and AlertList
+```
+
+Requests are guarded against stale device changes. Realtime readings are upserted by reading ID and bounded to the latest 100 history points so reconnects cannot duplicate data indefinitely.
+
+### Frontend technical decisions
+
+* Context is used only for cross-page state shared by the shell.
+* Pages own feature-specific server state and loading/error states.
+* API modules keep HTTP details out of presentation components.
+* Components receive data and callbacks instead of reaching into unrelated domains.
+* Socket listeners are removed when the selected device or token changes.
+* Alert resolution reuses the same alert upsert path as realtime updates.
+* Device identity is easy to verify and copy from both the card and full-screen detail view.
+* Responsive layout changes navigation shape at the medium breakpoint instead of forcing the desktop sidebar onto mobile screens.
+* Activity analysis is a separate navigation workspace so the live dashboard stays focused while historical investigation remains easy to find.
+* Simulator control goes through the backend so device ownership and the internal control token never reach the browser.
 
 ---
 
@@ -1546,8 +1728,19 @@ Realtime functionality has also been implemented and verified at the backend lev
 * Realtime alert creation events
 * Realtime alert update events
 * Realtime alert resolution events
+* Simulator control status, suspend, and resume behavior
 
-The Arduino simulator has been integrated with the real device endpoint and successfully sends readings at a configurable interval.
+Frontend verification includes:
+
+* TypeScript project build
+* Vite production bundle compilation
+* Protected route and authenticated session behavior
+* Device activity workspace rendering
+* Reading history and alert lifecycle rendering
+* Manual alert resolution flow
+* Simulator control UI state and backend integration
+
+The Arduino simulator uses the real device endpoint and sends readings at a configurable interval when its `SIMULATOR_DEVICE_ID` and `SIMULATOR_DEVICE_KEY` match an existing registered device. Device credentials are intentionally not seeded automatically because raw keys are shown only once and must remain private.
 
 The serial bridge has also been implemented so the physical Arduino can use the same backend reading contract through USB serial communication.
 
@@ -1612,9 +1805,37 @@ Arduino serial bridge                    ✅
 
 Physical Arduino → backend path          ✅
 
-Frontend V2 integration                   ⏳
+Frontend authentication                   ✅
 
-Full-stack frontend Docker workflow      ⏳
+Frontend protected routing                ✅
+
+Frontend device management                ✅
+
+Frontend dashboard readings                ✅
+
+Frontend realtime readings and alerts     ✅
+
+Frontend account/profile flow              ✅
+
+Frontend responsive shell                 ✅
+
+Frontend device detail and ID copy        ✅
+
+Frontend alert filters and resolution     ✅
+
+Frontend socket connection status         ✅
+
+Frontend V2 integration                   ✅
+
+Frontend activity workspace               ✅
+
+Frontend reading and alert history        ✅
+
+Frontend simulator controls               ✅
+
+Simulator suspend/resume API              ✅
+
+Full-stack frontend Docker workflow      ✅
 
 Production deployment                    ⏳
 
@@ -1627,29 +1848,7 @@ Final hardware wiring documentation      ⏳
 
 # Planned Next Steps
 
-## 1. Integrate the existing React dashboard
-
-Add:
-
-* user authentication
-* protected application state
-* device management
-* reading history
-* live sensor updates
-* live alert updates
-* Socket.IO connection and device-room subscription
-
-The dashboard design will remain visually consistent.
-
----
-
-## 2. Full-stack Docker Compose
-
-Extend the current Docker development environment to include the frontend so the complete application can be started consistently.
-
----
-
-## 3. Production deployment
+## 1. Production deployment
 
 Planned direction:
 
@@ -1667,9 +1866,18 @@ The physical Arduino remains an external IoT client.
 
 The development serial bridge is not a production backend service; it exists to connect USB-connected hardware to the API during local development.
 
+The frontend runs in its own Node/Vite container during development. It reads `VITE_API_URL` and `VITE_SOCKET_URL` from the existing root `.env` through Compose and publishes the Vite development server on port `5173`. The frontend container does not receive backend secrets or the simulator control token.
+
+The Vite values below are provided to the development container at runtime from the root environment file:
+
+```env
+VITE_API_URL=http://localhost:3000/api
+VITE_SOCKET_URL=http://localhost:3000
+```
+
 ---
 
-## 4. Automated testing
+## 2. Automated testing
 
 Add automated tests for:
 
@@ -1741,4 +1949,6 @@ V2 adds the surrounding infrastructure needed to turn that prototype into a comp
 
 > **Physical Arduino integration: implemented through a USB serial bridge using the same device-authenticated reading endpoint.**
 
-> **The next major milestone is integrating the existing React dashboard with the REST and Socket.IO APIs.**
+> **The frontend dashboard, activity workspace, realtime controls, and simulator lifecycle controls are integrated with the REST and Socket.IO APIs.**
+
+> **The next major milestones are production deployment and automated test coverage.**

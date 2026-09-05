@@ -48,6 +48,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
+      SIMULATOR_URL: http://simulator:4000
+      SIMULATOR_CONTROL_TOKEN: ${SIMULATOR_CONTROL_TOKEN:-local-development-simulator-token}
 
     ports:
       - "3000:3000"
@@ -55,6 +57,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: arduino-iot-frontend
+
+    restart: unless-stopped
+
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_SOCKET_URL: ${VITE_SOCKET_URL}
+
+    ports:
+      - "5173:5173"
+
+    depends_on:
+      backend:
+        condition: service_started
 
   simulator:
     build:
@@ -70,6 +92,8 @@ services:
       DEVICE_ID: ${SIMULATOR_DEVICE_ID}
       DEVICE_KEY: ${SIMULATOR_DEVICE_KEY}
       INTERVAL_MS: ${SIMULATOR_INTERVAL_MS:-2000}
+      SIMULATOR_CONTROL_TOKEN: ${SIMULATOR_CONTROL_TOKEN:-local-development-simulator-token}
+      SIMULATOR_CONTROL_PORT: 4000
 
     depends_on:
       backend:
