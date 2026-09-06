@@ -4,6 +4,7 @@ import DeviceCard from "./DeviceCard";
 
 interface DeviceListProps {
     devices: Device[];
+    simulatorActiveIds?: Set<string>;
     selectedDeviceId: string | null;
     onSelect: (deviceId: string) => void;
     onOpenDetails?: (deviceId: string) => void;
@@ -11,6 +12,7 @@ interface DeviceListProps {
 
 export default function DeviceList({
     devices,
+    simulatorActiveIds = new Set<string>(),
     selectedDeviceId,
     onSelect,
     onOpenDetails,
@@ -21,6 +23,7 @@ export default function DeviceList({
                 <DeviceCard
                     key={device.id}
                     device={device}
+                    simulatorActive={simulatorActiveIds.has(device.id)}
                     selected={
                         device.id ===
                         selectedDeviceId

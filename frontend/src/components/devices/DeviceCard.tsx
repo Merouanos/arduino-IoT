@@ -13,6 +13,7 @@ import {
 
 interface DeviceCardProps {
     device: Device;
+    simulatorActive?: boolean;
     selected?: boolean;
     onSelect: (deviceId: string) => void;
     onOpenDetails?: (deviceId: string) => void;
@@ -20,16 +21,16 @@ interface DeviceCardProps {
 
 export default function DeviceCard({
     device,
+    simulatorActive = false,
     selected = false,
     onSelect,
     onOpenDetails,
 }: DeviceCardProps) {
     const [copied, setCopied] = useState(false);
 
-    const status =
-        getDeviceStatus(
-            device.lastSeenAt
-        );
+    const status = simulatorActive
+        ? DEVICE_STATUS.ONLINE
+        : getDeviceStatus(device.lastSeenAt);
 
     const statusColor =
         status === DEVICE_STATUS.ONLINE

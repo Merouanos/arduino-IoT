@@ -1,7 +1,10 @@
 import { api } from "./client";
 
 export async function getSimulatorStatus(deviceId: string) {
-    const response = await api.get<{ suspended: boolean }>(
+    const response = await api.get<{
+        active: boolean;
+        suspended: boolean;
+    }>(
         `/devices/${deviceId}/simulator`
     );
 

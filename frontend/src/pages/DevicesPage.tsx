@@ -1,5 +1,6 @@
 import {
     useState,
+    useEffect,
 } from "react";
 
 import {
@@ -24,6 +25,7 @@ import {
     COLORS,
     LABELS,
 } from "../components/devices/Constant";
+import { getSimulatorStatus } from "../api/simulator.api";
 
 export default function DevicesPage() {
     const {
@@ -47,6 +49,48 @@ export default function DevicesPage() {
 
     const [detailDeviceId, setDetailDeviceId] =
         useState<string | null>(null);
+
+    const [simulatorActiveIds, setSimulatorActiveIds] =
+        useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadSimulatorStatuses() {
+            const statuses = await Promise.all(
+                devices.map(async (device) => {
+                    try {
+                        const status = await getSimulatorStatus(device.id);
+                        return status.active && !status.suspended
+                            ? device.id
+                            : null;
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+
+            if (!cancelled) {
+                setSimulatorActiveIds(
+                    new Set(
+                        statuses.filter(
+                            (deviceId): deviceId is string => Boolean(deviceId)
+                        )
+                    )
+                );
+            }
+        }
+
+        if (devices.length === 0) {
+            setSimulatorActiveIds(new Set());
+        } else {
+            void loadSimulatorStatuses();
+        }
+
+        return () => {
+            cancelled = true;
+        };
+    }, [devices]);
 
     async function handleCreated(
         result: CreateDeviceResponse
@@ -255,6 +299,7 @@ export default function DevicesPage() {
                     <div className="space-y-5">
                         <DeviceList
                             devices={devices}
+                            simulatorActiveIds={simulatorActiveIds}
                             selectedDeviceId={
                                 selectedDeviceId
                             }
