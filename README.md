@@ -1486,6 +1486,17 @@ Never expose backend secrets or device keys to the frontend.
 
 Device credentials should remain in the local `.env` file and should not be placed in `.env.example`.
 
+The root `.gitignore` excludes local environment files and backend dependencies while keeping `.env.example` tracked:
+
+```text
+.env
+.env.*
+!.env.example
+backend/node_modules/
+```
+
+The example environment file documents configuration for the backend, PostgreSQL, simulator, serial bridge, development test user, and Vite frontend.
+
 ---
 
 ## Start the backend stack
@@ -1535,6 +1546,8 @@ SIMULATOR_CONTROL_TOKEN=...
 ```
 
 The simulator can then run as part of the Docker Compose stack. Users create and select their own devices in the authenticated dashboard; activating the simulator starts a session for that device. The simulator sends readings through the internal backend route, so users do not need to configure or expose a simulator device ID or device key. The control token is shared only by the backend and simulator containers; it is never exposed to the frontend.
+
+The simulator listens on `SIMULATOR_CONTROL_PORT` locally and falls back to port `4000`. When deployed to a platform such as Railway, the injected `PORT` variable takes precedence so the container listens on the platform-assigned port.
 
 ---
 
@@ -1834,7 +1847,7 @@ Simulator suspend/resume API              ✅
 
 Full-stack frontend Docker workflow      ✅
 
-Production deployment                    ⏳
+Production deployment configuration      ✅
 
 Automated test suite                     ⏳
 
@@ -1847,23 +1860,55 @@ Final hardware wiring documentation      ⏳
 
 ## 1. Production deployment
 
-Planned direction:
+The current deployment direction uses Railway services for the hosted application:
 
 ```text
-React frontend → Vercel
+React frontend → Railway
         │
         ▼
-Express backend → Render
+Express backend → Railway
         │
         ▼
+PostgreSQL → Railway
+```
+
+The simulator is deployed as a separate Railway service from the `simulator/` directory:
+
+```text
 PostgreSQL
+  ↓
+Backend
+  ↓ private networking
+Simulator
+```
+
+The backend and simulator share `SIMULATOR_CONTROL_TOKEN`. The backend uses the simulator's Railway private domain through `SIMULATOR_INTERNAL_URL`, while the simulator uses the backend's private domain through `SIMULATOR_BACKEND_INTERNAL_URL`. The simulator does not need a public domain.
+
+Railway injects `PORT` into each service. The backend already listens on `PORT`; the frontend Docker command passes `PORT` to Vite; and the simulator uses `PORT` before its local `SIMULATOR_CONTROL_PORT` fallback.
+
+The production service configuration requires:
+
+```env
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+JWT_SECRET=<long-random-secret>
+CORS_ORIGIN=https://<frontend-domain>
+SIMULATOR_CONTROL_TOKEN=<shared-long-random-secret>
+SIMULATOR_INTERNAL_URL=http://${{Simulator.RAILWAY_PRIVATE_DOMAIN}}:${{Simulator.PORT}}
+SIMULATOR_BACKEND_INTERNAL_URL=http://${{Backend.RAILWAY_PRIVATE_DOMAIN}}:${{Backend.PORT}}
+```
+
+Frontend production variables are configured with the public backend URL:
+
+```env
+VITE_API_URL=https://<backend-domain>/api
+VITE_SOCKET_URL=https://<backend-domain>
 ```
 
 The physical Arduino remains an external IoT client.
 
 The development serial bridge is not a production backend service; it exists to connect USB-connected hardware to the API during local development.
 
-The frontend runs in its own Node/Vite container during development. It reads `VITE_API_URL` and `VITE_SOCKET_URL` from the existing root `.env` through Compose and publishes the Vite development server on port `5173`. The frontend container does not receive backend secrets or the simulator control token.
+The frontend runs in its own Node/Vite container during development and production deployment. It reads `VITE_API_URL` and `VITE_SOCKET_URL` from the existing root `.env` through Compose and uses port `5173` locally. In Railway, the frontend Docker command uses the injected `PORT`. The frontend container does not receive backend secrets or the simulator control token.
 
 The Vite values below are provided to the development container at runtime from the root environment file:
 
@@ -1948,4 +1993,4 @@ V2 adds the surrounding infrastructure needed to turn that prototype into a comp
 
 > **The frontend dashboard, activity workspace, realtime controls, and simulator lifecycle controls are integrated with the REST and Socket.IO APIs.**
 
-> **The next major milestones are production deployment and automated test coverage.**
+> **The next major milestone is automated test coverage.**

@@ -3,7 +3,9 @@ import { createServer } from "node:http";
 import { getSession, resumeSession, startSession, stopSession, suspendSession, } from "./session.js";
 import { sendReading } from "./client.js";
 const controlToken = process.env.SIMULATOR_CONTROL_TOKEN;
-const controlPort = Number(process.env.SIMULATOR_CONTROL_PORT ?? 4000);
+const controlPort = Number(process.env.PORT ??
+    process.env.SIMULATOR_CONTROL_PORT ??
+    4000);
 const scenarios = new Set([
     "random",
     "normal",

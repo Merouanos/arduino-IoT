@@ -15,7 +15,9 @@ const controlToken =
     process.env.SIMULATOR_CONTROL_TOKEN;
 
 const controlPort = Number(
-    process.env.SIMULATOR_CONTROL_PORT ?? 4000
+    process.env.PORT ??
+    process.env.SIMULATOR_CONTROL_PORT ??
+    4000
 );
 
 const scenarios = new Set([
