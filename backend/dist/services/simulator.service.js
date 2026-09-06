@@ -33,49 +33,77 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getStatus = getStatus;
+exports.getStatus = void 0;
+exports.startSimulation = startSimulation;
+exports.stopSimulation = stopSimulation;
+exports.getSimulationStatus = getSimulationStatus;
 exports.setSuspended = setSuspended;
 const app_error_1 = require("../lib/app.error");
 const deviceRepository = __importStar(require("../repositories/device.repository"));
-const simulatorUrl = process.env.SIMULATOR_URL ?? "http://simulator:4000";
-const simulatorToken = process.env.SIMULATOR_CONTROL_TOKEN;
-async function requestSimulator(path) {
-    if (!simulatorToken) {
-        throw new app_error_1.AppError("Simulator control is not configured", 503);
+async function simulatorRequest(path, options = {}) {
+    const simulatorUrl = process.env.SIMULATOR_INTERNAL_URL;
+    const simulatorToken = process.env.SIMULATOR_CONTROL_TOKEN;
+    if (!simulatorUrl ||
+        !simulatorToken) {
+        throw new app_error_1.AppError("Simulator is not configured", 503);
     }
-    try {
-        const response = await fetch(`${simulatorUrl}${path}`, {
-            method: path === "/status" ? "GET" : "POST",
-            headers: {
-                "X-Simulator-Token": simulatorToken,
-            },
-        });
-        if (!response.ok) {
-            throw new app_error_1.AppError("Simulator control unavailable", 503);
-        }
-        return (await response.json());
+    const response = await fetch(`${simulatorUrl}${path}`, {
+        ...options,
+        headers: {
+            "Content-Type": "application/json",
+            "X-Simulator-Token": simulatorToken,
+            ...(options.headers ?? {}),
+        },
+    });
+    if (!response.ok) {
+        const message = await response.text();
+        throw new app_error_1.AppError(message || "Simulator request failed", 502);
     }
-    catch (error) {
-        if (error instanceof app_error_1.AppError) {
-            throw error;
-        }
-        throw new app_error_1.AppError("Simulator control unavailable", 503);
-    }
+    return response.json();
 }
-async function assertSimulatorDevice(deviceId, userId) {
+async function startSimulation(deviceId, userId, scenario) {
     const device = await deviceRepository.findByIdAndUser(deviceId, userId);
     if (!device) {
         throw new app_error_1.AppError("Device not found", 404);
     }
-    if (process.env.SIMULATOR_DEVICE_ID !== deviceId) {
-        throw new app_error_1.AppError("Simulator is not assigned to this device", 409);
-    }
+    return simulatorRequest("/sessions/start", {
+        method: "POST",
+        body: JSON.stringify({
+            deviceId,
+            scenario,
+        }),
+    });
 }
-async function getStatus(deviceId, userId) {
-    await assertSimulatorDevice(deviceId, userId);
-    return requestSimulator("/status");
+async function stopSimulation(deviceId, userId) {
+    const device = await deviceRepository.findByIdAndUser(deviceId, userId);
+    if (!device) {
+        throw new app_error_1.AppError("Device not found", 404);
+    }
+    return simulatorRequest("/sessions/stop", {
+        method: "POST",
+        body: JSON.stringify({
+            deviceId,
+        }),
+    });
+}
+async function getSimulationStatus(deviceId, userId) {
+    const device = await deviceRepository.findByIdAndUser(deviceId, userId);
+    if (!device) {
+        throw new app_error_1.AppError("Device not found", 404);
+    }
+    return simulatorRequest(`/sessions/${deviceId}`);
 }
 async function setSuspended(deviceId, userId, suspended) {
-    await assertSimulatorDevice(deviceId, userId);
-    return requestSimulator(suspended ? "/pause" : "/resume");
+    const device = await deviceRepository.findByIdAndUser(deviceId, userId);
+    if (!device) {
+        throw new app_error_1.AppError("Device not found", 404);
+    }
+    if (!suspended) {
+        return startSimulation(deviceId, userId, "random");
+    }
+    return simulatorRequest("/sessions/suspend", {
+        method: "POST",
+        body: JSON.stringify({ deviceId }),
+    });
 }
+exports.getStatus = getSimulationStatus;

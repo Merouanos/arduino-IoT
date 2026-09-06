@@ -33,35 +33,49 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getStatus = getStatus;
-exports.updateStatus = updateStatus;
-const simulatorService = __importStar(require("../services/simulator.service"));
-async function getStatus(req, res, next) {
+const express_1 = require("express");
+const readingService = __importStar(require("../services/reading.service"));
+const validate_middleware_1 = require("../middleware/validate.middleware");
+const reading_schema_1 = require("../schemas/reading.schema");
+const zod_1 = require("zod");
+const router = (0, express_1.Router)();
+const internalReadingSchema = reading_schema_1.readingSchema.extend({
+    deviceId: zod_1.z.string().min(1),
+});
+function simulatorAuth(req, res, next) {
+    const token = req.headers["x-simulator-token"];
+    if (typeof token !== "string" ||
+        !process.env.SIMULATOR_CONTROL_TOKEN ||
+        token !==
+            process.env
+                .SIMULATOR_CONTROL_TOKEN) {
+        return res.status(401).json({
+            message: "Simulator authentication required",
+        });
+    }
+    next();
+}
+router.post("/readings", simulatorAuth, (0, validate_middleware_1.validate)(internalReadingSchema), async (req, res, next) => {
     try {
-        const deviceId = req.params.id;
+        const { deviceId, temperature, humidity, free_ram, temperature_status, humidity_status, } = req.body;
         if (typeof deviceId !== "string") {
-            return res.status(400).json({ message: "Invalid device ID" });
+            return res.status(400).json({
+                message: "deviceId is required",
+            });
         }
-        const status = await simulatorService.getStatus(deviceId, req.user.id);
-        return res.status(200).json({
-            suspended: status.suspended ?? !status.active,
-            ...status,
+        const reading = await readingService.createReading(deviceId, {
+            temperature,
+            humidity,
+            free_ram,
+            temperature_status,
+            humidity_status,
+        });
+        return res.status(201).json({
+            reading,
         });
     }
     catch (error) {
         next(error);
     }
-}
-async function updateStatus(req, res, next) {
-    try {
-        const deviceId = req.params.id;
-        if (typeof deviceId !== "string") {
-            return res.status(400).json({ message: "Invalid device ID" });
-        }
-        const status = await simulatorService.setSuspended(deviceId, req.user.id, req.body.suspended);
-        return res.status(200).json(status);
-    }
-    catch (error) {
-        next(error);
-    }
-}
+});
+exports.default = router;

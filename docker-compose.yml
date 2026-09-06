@@ -48,7 +48,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
-      SIMULATOR_INTERNAL_URL: http://simulator:4000
+      SIMULATOR_INTERNAL_URL: ${SIMULATOR_INTERNAL_URL:-http://simulator:4000}
       SIMULATOR_CONTROL_TOKEN: ${SIMULATOR_CONTROL_TOKEN:-local-development-simulator-token}
 
     ports:
@@ -88,7 +88,7 @@ services:
     restart: unless-stopped
 
     environment:
-      SIMULATOR_BACKEND_INTERNAL_URL: http://backend:3000
+      SIMULATOR_BACKEND_INTERNAL_URL: ${SIMULATOR_BACKEND_INTERNAL_URL:-http://backend:3000}
       SIMULATOR_CONTROL_TOKEN: ${SIMULATOR_CONTROL_TOKEN:-local-development-simulator-token}
       SIMULATOR_CONTROL_PORT: 4000
 

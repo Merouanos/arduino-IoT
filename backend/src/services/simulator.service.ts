@@ -1,16 +1,16 @@
 import { AppError } from "../lib/app.error";
 import * as deviceRepository from "../repositories/device.repository";
 
-const simulatorUrl =
-    process.env.SIMULATOR_INTERNAL_URL;
-
-const simulatorToken =
-    process.env.SIMULATOR_CONTROL_TOKEN;
-
 async function simulatorRequest(
     path: string,
     options: RequestInit = {}
 ) {
+    const simulatorUrl =
+        process.env.SIMULATOR_INTERNAL_URL;
+
+    const simulatorToken =
+        process.env.SIMULATOR_CONTROL_TOKEN;
+
     if (
         !simulatorUrl ||
         !simulatorToken
