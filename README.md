@@ -827,6 +827,10 @@ The backend only forwards control when:
 
 The simulator exposes its own internal control server on port `4000` inside the Docker network. It requires `X-Simulator-Token` and is not published to the host. One simulator container can maintain up to five independent device sessions at the same time.
 
+The backend reads simulator connection variables when a control request is made, so values loaded from `.env` locally and Railway service variables are both supported. Docker Compose uses the configured simulator URLs with local service-name fallbacks.
+
+When a simulator session is active and not suspended, the Devices page reports its device as `ONLINE`. Suspended or unreachable simulator sessions fall back to the device's normal `last_seen_at` status logic.
+
 ---
 
 # Repository Structure
@@ -1849,9 +1853,11 @@ Full-stack frontend Docker workflow      ✅
 
 Production deployment configuration      ✅
 
-Automated test suite                     ⏳
+Manual verification coverage             ✅
 
-Final hardware wiring documentation      ⏳
+Physical hardware integration            ✅
+
+Project completion                       ✅
 ```
 
 ---
@@ -1860,10 +1866,10 @@ Final hardware wiring documentation      ⏳
 
 ## 1. Production deployment
 
-The current deployment direction uses Railway services for the hosted application:
+The completed deployment uses Vercel for the React frontend and Railway for the backend services:
 
 ```text
-React frontend → Railway
+React frontend → Vercel
         │
         ▼
 Express backend → Railway
@@ -1897,18 +1903,20 @@ SIMULATOR_INTERNAL_URL=http://${{Simulator.RAILWAY_PRIVATE_DOMAIN}}:${{Simulator
 SIMULATOR_BACKEND_INTERNAL_URL=http://${{Backend.RAILWAY_PRIVATE_DOMAIN}}:${{Backend.PORT}}
 ```
 
-Frontend production variables are configured with the public backend URL:
+Frontend production variables are configured in Vercel with the public backend URL:
 
 ```env
 VITE_API_URL=https://<backend-domain>/api
 VITE_SOCKET_URL=https://<backend-domain>
 ```
 
+The Vercel project uses `frontend/` as its root directory. The [`frontend/vercel.json`](frontend/vercel.json) rewrite sends direct requests for client routes such as `/dashboard`, `/devices`, and `/account` to the React entry point. This prevents Vercel `NOT_FOUND` errors when refreshing a page.
+
 The physical Arduino remains an external IoT client.
 
 The development serial bridge is not a production backend service; it exists to connect USB-connected hardware to the API during local development.
 
-The frontend runs in its own Node/Vite container during development and production deployment. It reads `VITE_API_URL` and `VITE_SOCKET_URL` from the existing root `.env` through Compose and uses port `5173` locally. In Railway, the frontend Docker command uses the injected `PORT`. The frontend container does not receive backend secrets or the simulator control token.
+The frontend runs in its own Node/Vite container during development. The production frontend can also be deployed through the updated Dockerfile, which builds the application and serves the compiled SPA with Vite preview using the injected `PORT`. The frontend container does not receive backend secrets or the simulator control token.
 
 The Vite values below are provided to the development container at runtime from the root environment file:
 
@@ -1919,19 +1927,9 @@ VITE_SOCKET_URL=http://localhost:3000
 
 ---
 
-## 2. Automated testing
+## 2. Completion status
 
-Add automated tests for:
-
-```text
-authentication
-authorization
-validation
-device authentication
-reading ingestion
-alert lifecycle
-Socket.IO events
-```
+The project is complete for the current scope. Backend, frontend, simulator, Docker, Railway, Vercel routing, realtime communication, and physical Arduino integration have been implemented and manually verified. Automated test files are not included in the repository; the existing verification is documented in the testing section above.
 
 ---
 
@@ -1993,4 +1991,6 @@ V2 adds the surrounding infrastructure needed to turn that prototype into a comp
 
 > **The frontend dashboard, activity workspace, realtime controls, and simulator lifecycle controls are integrated with the REST and Socket.IO APIs.**
 
-> **The next major milestone is automated test coverage.**
+> **Project status: complete for the current production scope.**
+
+> **The full-stack application, Railway backend services, Vercel frontend routing, simulator lifecycle controls, realtime updates, and physical Arduino integration are implemented and manually verified.**
